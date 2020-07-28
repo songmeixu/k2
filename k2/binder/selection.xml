@@ -1,0 +1,11 @@
+<lcgdict>
+    <selection>
+        <class pattern="kk::*"/>
+<!--        <funtion pattern="kk::*"/>-->
+<!--        <enum pattern="kk::*"/>-->
+        <variable pattern="kk::*"/>
+<!--        <namespace name="k2"/>-->
+    </selection>
+    <exclusion>
+    </exclusion>
+</lcgdict>

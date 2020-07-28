@@ -253,7 +253,7 @@ def DenseFsaVec:
               - start_times says, for each segment, what the
                 one-past-the-last frame-index in `loglikes` is.
         """
-        # note: this will reate a csrc.CfsaVec object internal to this
+        # note: this will reate a cc.CfsaVec object internal to this
         # object.
         # It will also create self.arc_loglikes containing the
         # loglikes, one per arc of the CfsaVec object.  This is

@@ -9,12 +9,11 @@ endif ()
 
 cmake_minimum_required(VERSION 3.12 FATAL_ERROR)
 
-project(sequeender
+project(k2
         LANGUAGES CXX
         VERSION 0.1.0
-        HOMEPAGE_URL "https://github.com/songmeixu/sequeender"
-        DESCRIPTION "one day, SEQuence problems got the qUEen's END ordER, \
-        the codename is SEQUEENDER.")
+        HOMEPAGE_URL "https://github.com/songmeixu/k2"
+        DESCRIPTION "k2")
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -67,4 +66,4 @@ include(GNUInstallDirs)
 #
 # Set up the target shared lib
 #
-add_subdirectory(sequeender)
+add_subdirectory(k2)

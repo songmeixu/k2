@@ -66,7 +66,7 @@ function(cppyy_generate_setup pkg version lib_so_file rootmap_file pcm_file map_
   get_filename_component(CPPYY_ROOTMAP ${rootmap_file} NAME)
   get_filename_component(CPPYY_PCM ${pcm_file} NAME)
   get_filename_component(CPPYY_MAP ${map_file} NAME)
-  configure_file(${CMAKE_SOURCE_DIR}/${CMAKE_PROJECT_NAME}/binder/pkg_templates/setup.py.in ${SETUP_PY_FILE})
+  configure_file(${CMAKE_CURRENT_LIST_DIR}/pkg_templates/setup.py.in ${SETUP_PY_FILE})
 
   set(SETUP_PY_FILE ${SETUP_PY_FILE} PARENT_SCOPE)
 endfunction(cppyy_generate_setup)
@@ -98,7 +98,7 @@ function(cppyy_generate_init)
     set(NAMESPACE_INJECTIONS "")
   endif ()
 
-  configure_file(${CMAKE_SOURCE_DIR}/${CMAKE_PROJECT_NAME}/binder/pkg_templates/__init__.py.in ${INIT_PY_FILE})
+  configure_file(${CMAKE_CURRENT_LIST_DIR}/pkg_templates/__init__.py.in ${INIT_PY_FILE})
 
   set(INIT_PY_FILE ${INIT_PY_FILE} PARENT_SCOPE)
 endfunction(cppyy_generate_init)
@@ -390,7 +390,7 @@ function(cppyy_add_bindings pkg pkg_version author author_email)
   # Generate setup.cfg
   #
   set(setup_cfg ${CMAKE_CURRENT_BINARY_DIR}/setup.cfg)
-  configure_file(${CMAKE_SOURCE_DIR}/${CMAKE_PROJECT_NAME}/binder/pkg_templates/setup.cfg.in ${setup_cfg})
+  configure_file(${CMAKE_CURRENT_LIST_DIR}/pkg_templates/setup.cfg.in ${setup_cfg})
 
   #
   # Copy README and LICENSE
@@ -402,17 +402,17 @@ function(cppyy_add_bindings pkg pkg_version author author_email)
   # Generate a pytest/nosetest sanity test script.
   #
   set(PKG ${pkg})
-  configure_file(${CMAKE_SOURCE_DIR}/${CMAKE_PROJECT_NAME}/binder/pkg_templates/test_bindings.py.in ${pkg_dir}/tests/test_bindings.py)
+  configure_file(${CMAKE_CURRENT_LIST_DIR}/pkg_templates/test_bindings.py.in ${pkg_dir}/tests/test_bindings.py)
 
   #
   # Generate MANIFEST.in
   #
-  configure_file(${CMAKE_SOURCE_DIR}/${CMAKE_PROJECT_NAME}/binder/pkg_templates/MANIFEST.in.in ${CMAKE_CURRENT_BINARY_DIR}/MANIFEST.in)
+  configure_file(${CMAKE_CURRENT_LIST_DIR}/pkg_templates/MANIFEST.in.in ${CMAKE_CURRENT_BINARY_DIR}/MANIFEST.in)
 
   #
   # Copy pure python code
   #
-  file(COPY ${CMAKE_SOURCE_DIR}/py/ DESTINATION ${pkg_dir}
+  file(COPY ${CMAKE_CURRENT_LIST_DIR}/ DESTINATION ${pkg_dir}
        USE_SOURCE_PERMISSIONS
        FILES_MATCHING PATTERN "*.py")
 

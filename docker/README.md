@@ -1,4 +1,4 @@
-# Docker for sequeender
+# Docker for k2
 
 ## Installation
 
@@ -15,7 +15,7 @@ make docker VERSION=latest
 ```
 
 You could also provide name and version for the image itself.
-Default name is `IMAGE := sequeender`.
+Default name is `IMAGE := k2`.
 Default version is `VERSION := latest`.
 
 ```bash
@@ -27,7 +27,7 @@ make docker IMAGE=some_name VERSION=0.1.0
 ```bash
 docker run -it --rm \
    -v $(pwd):/workspace \
-   sequeender bash
+   k2 bash
 ```
 
 ## How to clean up

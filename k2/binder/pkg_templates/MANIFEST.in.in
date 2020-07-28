@@ -1,0 +1,1 @@
+recursive-include @PKG@ *.pcm *.so *.dylib *.rootmap *.map *.py

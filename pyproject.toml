@@ -5,16 +5,16 @@ requires = ["poetry>=1.0"]
 build-backend = "poetry.masonry.api"
 
 [tool.poetry]
-name = "sequeender"
+name = "k2"
 version = "0.1.0"
-description = "one day, SEQuence problems got the qUEen's END ordER, the codename is SEQUEENDER."
+description = "k2."
 readme = "README.md"
 authors = [
-  "sequeender <songmeixu@outlook.com>"
+  "k2 <songmeixu@outlook.com>"
 ]
 license = "MIT"
-repository = "https://github.com/songmeixu/sequeender"
-homepage = "https://github.com/songmeixu/sequeender"
+repository = "https://github.com/songmeixu/k2"
+homepage = "https://github.com/songmeixu/k2"
 
 # Keywords description https://python-poetry.org/docs/pyproject/#keywords
 keywords = []  # Update me
@@ -29,7 +29,7 @@ classifiers = [  # Update me
 
 [tool.poetry.scripts]
 # Entry points for the package https://python-poetry.org/docs/pyproject/#scripts
-"sequeender" = "sequeender.__main__:app"
+"k2" = "k2.__main__:app"
 
 [tool.poetry.dependencies]
 python = "^3.7"

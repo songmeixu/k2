@@ -1,6 +1,6 @@
 import pytest
 
-from sequeender.example import hello
+from k2.example import hello
 
 
 @pytest.mark.parametrize(
