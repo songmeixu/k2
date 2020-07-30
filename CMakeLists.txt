@@ -60,7 +60,7 @@ endif ()
 include(cpplint)
 include(glog)
 include(googletest)
-#include(pybind11)
+include(pybind11)
 include(GNUInstallDirs)
 
 #

@@ -9,8 +9,10 @@
 
 # get glog/logging.h path
 get_target_property(glog_INCLUDE_PATH glog INCLUDE_DIRECTORIES)
-foreach (path ${glog_INCLUDE_PATH})
-  list(APPEND glog_INCLUDE_DIRS ${path})
+foreach (inc_path ${glog_INCLUDE_PATH})
+  if (${inc_path} MATCHES "\\$<BUILD_INTERFACE:(.*)>.*")
+     list(APPEND glog_INCLUDE_DIRS ${CMAKE_MATCH_1})
+  endif ()
 endforeach ()
 
 cppyy_add_bindings(
@@ -18,9 +20,11 @@ cppyy_add_bindings(
     LICENSE "MIT"
     LANGUAGE_STANDARD "14"
     SELECTION_XML ${CMAKE_CURRENT_LIST_DIR}/selection.xml
-    INTERFACE_FILE ${CMAKE_SOURCE_DIR}/${CMAKE_PROJECT_NAME}/cc/interface.h
-    HEADERS ${ABS_LIB_HEADERS}
-    INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/${CMAKE_PROJECT_NAME}
+    INTERFACE_FILE ${public_header_file}
+    HEADERS ${ABS_HEADERS_TO_BINDER}
+    INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/${CMAKE_PROJECT_NAME}/cc
+                 ${PYBIND11_INCLUDE_DIR}
+                 ${PYTHON_INCLUDE_DIRS}
                  ${glog_INCLUDE_DIRS}
     LINK_LIBRARIES k2
     NAMESPACES kk

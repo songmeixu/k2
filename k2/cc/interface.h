@@ -1,4 +1,4 @@
-// cc/interface.h
+// dlpack/interface.h
 
 // Copyright (c)  2020  Xiaomi Corporation (authors: Meixu Song)
 
@@ -7,24 +7,29 @@
 #ifndef K2_CC_INTERFACE_H_
 #define K2_CC_INTERFACE_H_
 
-#include "glog/logging.h"
-#include "cc/arcsort.h"
-#include "cc/array.h"
-#include "cc/aux_labels.h"
-#include "cc/connect.h"
-// #include "cc/dense_fsa.h"
-#include "cc/determinize.h"
-#include "cc/determinize_impl.h"
-#include "cc/fsa.h"
-#include "cc/fsa_equivalent.h"
-#include "cc/fsa_renderer.h"
-#include "cc/fsa_util.h"
-#include "cc/intersect.h"
-#include "cc/properties.h"
-#include "cc/rmepsilon.h"
-#include "cc/topsort.h"
-#include "cc/util.h"
-#include "cc/weights.h"
+#include <glog/logging.h>
+
+#include "fsa/arcsort.h"
+#include "fsa/array.h"
+#include "fsa/aux_labels.h"
+#include "fsa/connect.h"
+// #include "fsa/dense_fsa.h"
+#include "fsa/determinize.h"
+#include "fsa/determinize_impl.h"
+#include "fsa/fsa.h"
+#include "fsa/fsa_equivalent.h"
+#include "fsa/fsa_renderer.h"
+#include "fsa/fsa_util.h"
+#include "fsa/intersect.h"
+#include "fsa/properties.h"
+#include "fsa/rmepsilon.h"
+#include "fsa/topsort.h"
+#include "fsa/util.h"
+#include "fsa/weights.h"
+#include "dlpack/array.h"
+#include "dlpack/tensor.h"
+#include "dlpack/dlpack.h"
+#include "dlpack/fsa_dlpack.h"
 
 namespace kk {
 }

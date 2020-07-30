@@ -21,7 +21,7 @@
 #     cd build
 #     cmake ..
 #     cd ..
-#     clang-tidy-9 -p build k2/cc/*.cc
+#     clang-tidy-9 -p build k2/cc/*/*.cc
 #
 # ------------------------------------------------------------
 # Explanations for disabled checks

@@ -28,7 +28,10 @@ function(download_glog)
   message(STATUS "glog is downloaded to ${glog_SOURCE_DIR}")
   message(STATUS "glog's binary dir is ${glog_BINARY_DIR}")
 
-  add_subdirectory(${glog_glog_SOURCE_DIR} ${glog_glog_BINARY_DIR} EXCLUDE_FROM_ALL)
+  add_subdirectory(${glog_glog_SOURCE_DIR}
+                   ${glog_glog_BINARY_DIR}
+#                   EXCLUDE_FROM_ALL
+                   )
 endfunction()
 
 download_glog()

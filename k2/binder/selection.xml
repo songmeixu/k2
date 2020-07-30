@@ -2,7 +2,7 @@
     <selection>
         <class pattern="kk::*"/>
 <!--        <funtion pattern="kk::*"/>-->
-<!--        <enum pattern="kk::*"/>-->
+<!--        <enum pattern="*"/>-->
         <variable pattern="kk::*"/>
 <!--        <namespace name="k2"/>-->
     </selection>
