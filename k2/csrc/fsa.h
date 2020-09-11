@@ -18,10 +18,10 @@ namespace k2 {
 
 
 struct Arc {
-  int32_t src_state;
-  int32_t dest_state;
-  int32_t symbol;
-  float score;  // we have the space to put this here, so...
+    int32_t src_state;
+    int32_t dest_state;
+    int32_t symbol;
+    float score;  // we have the space to put this here, so...
 };
 
 
@@ -33,37 +33,37 @@ using FsaProperties = uint32_t;
   an arc and adjacent arcs (and the structural info).
  */
 enum FsaBasicProperties {
-  kFsaPropertiesValid = 0x01,      // Valid from a formatting perspective *as an
-                                   // FsaVec*.  Also require
-                                   // kFsaPropertiesSingleFsa == true if
-                                   // this is supposed to be a single FSA, not
-                                   // an FsaVec.
-  kFsaPropertiesNonempty = 0x02,   // Nonempty as in, has at least one arc.
-  kFsaPropertiesTopSorted = 0x04,  // FSA is top-sorted, dest_state >= src_state
-  kFsaPropertiesTopSortedAndAcyclic = 0x08,  // Top-sorted and acyclic, dest_state > src_state
-  kFsaPropertiesArcSorted = 0x10,  // Arcs leaving a given state are sorted by symbol
-  kFsaPropertiesArcSortedAndDeterministic = 0x20,  // Arcs leaving a given state
-                                                   // are *strictly* sorted by
-                                                   // symbol, i.e. no duplicates
-                                                   // with the same symbol.
-  kFsaPropertiesEpsilonFree = 0x40,  // Symbol zero (epsilon) is not present..
-  kFsaPropertiesMaybeAccessible = 0x80,  // True if there are no obvious signs of
-                                        // states not being accessible or
-                                        // co-accessible, i.e. states with no
-                                        // arcs entering them
-  kFsaPropertiesMaybeCoaccessible = 0x80,  // True if there are no obvious signs of
-                                        // states not being co-accessible, i.e.
-                                        // i.e. states with no arcs leaving them
-  kFsaPropertiesSerializable = 0x0100,  // True if there are no FSAs with zero
-                                        // states, and if for all fsa-indexes i,
-                                        // last-state(i) > first-state(i+1)
-                                        // where {last,first}-state is the
-                                        // {last,first} state that has an arc
-                                        // leaving it.  These properties are
-                                        // used in figuring out the boundaries
-                                        // between FSAs when we serialize to a
-                                        // list of arcs.
-  kFsaAllProperties = 0x01FF
+    kFsaPropertiesValid = 0x01,      // Valid from a formatting perspective *as an
+    // FsaVec*.  Also require
+    // kFsaPropertiesSingleFsa == true if
+    // this is supposed to be a single FSA, not
+    // an FsaVec.
+    kFsaPropertiesNonempty = 0x02,   // Nonempty as in, has at least one arc.
+    kFsaPropertiesTopSorted = 0x04,  // FSA is top-sorted, dest_state >= src_state
+    kFsaPropertiesTopSortedAndAcyclic = 0x08,  // Top-sorted and acyclic, dest_state > src_state
+    kFsaPropertiesArcSorted = 0x10,  // Arcs leaving a given state are sorted by symbol
+    kFsaPropertiesArcSortedAndDeterministic = 0x20,  // Arcs leaving a given state
+    // are *strictly* sorted by
+    // symbol, i.e. no duplicates
+    // with the same symbol.
+    kFsaPropertiesEpsilonFree = 0x40,  // Symbol zero (epsilon) is not present..
+    kFsaPropertiesMaybeAccessible = 0x80,  // True if there are no obvious signs of
+    // states not being accessible or
+    // co-accessible, i.e. states with no
+    // arcs entering them
+    kFsaPropertiesMaybeCoaccessible = 0x80,  // True if there are no obvious signs of
+    // states not being co-accessible, i.e.
+    // i.e. states with no arcs leaving them
+    kFsaPropertiesSerializable = 0x0100,  // True if there are no FSAs with zero
+    // states, and if for all fsa-indexes i,
+    // last-state(i) > first-state(i+1)
+    // where {last,first}-state is the
+    // {last,first} state that has an arc
+    // leaving it.  These properties are
+    // used in figuring out the boundaries
+    // between FSAs when we serialize to a
+    // list of arcs.
+    kFsaAllProperties = 0x01FF
 };
 
 
@@ -71,8 +71,8 @@ enum FsaBasicProperties {
 using Fsa = RaggedShape<Arc>;  // 2 axes: state,arc
 
 using FsaVec = RaggedShape<Arc>;  // 3 axes: fsa,state,arc.  Note, the src_state
-                                  // and dest_state in the arc are *within the
-                                  // FSA*, i.e. they are idx1 not idx01.
+// and dest_state in the arc are *within the
+// FSA*, i.e. they are idx1 not idx01.
 
 
 /*
@@ -91,36 +91,38 @@ using FsaVec = RaggedShape<Arc>;  // 3 axes: fsa,state,arc.  Note, the src_state
   logprob=0, the others have logprob=-inf).
  */
 class DenseFsaVec {
-  RaggedShape shape;  // has 2 axes; indexed first by FSA-index (this object
-                      // represents a list of FSAs!); and then for each FSA,
-                      // the state-index (actually the state-index from which
-                      // the arcs leave).
+    RaggedShape shape;  // has 2 axes; indexed first by FSA-index (this object
+    // represents a list of FSAs!); and then for each FSA,
+    // the state-index (actually the state-index from which
+    // the arcs leave).
 
 
-  // TODO: construct from a regular matrix containing the nnet output, plus some
-  // meta-info saying where the supervisions are.
+    // TODO: construct from a regular matrix containing the nnet output, plus some
+    // meta-info saying where the supervisions are.
 
 
-  // The following variable was removed and can be obtained as scores.Dim1().
-  // int32_t num_cols;
+    // The following variable was removed and can be obtained as scores.Dim1().
+    // int32_t num_cols;
 
-  // `scores` is a contiguous matrix of dimension shape.TotSize1()
-  // by num_cols (where num_cols == num_symbols+1); the indexes into it are
-  // [row_idx, symbol+1], where row_ids is an ind_01 w.r.t. `shape` (see naming
-  // convention explained in utils.h).
-  //
-  //  You can access scores[row_idx,symbol+1] as scores.Data()[row_ids*scores.Dim1() + symbol+1]
-  //
-  // `scores` contains -infinity in certain locations: in scores[j,0] where
-  // j is not the last row-index for a given FSA-index, and scores[j,k] where
-  // j is the last row-index for a given FSA-index and k>0.  The remaining
-  // locations contain the neural net output, except scores[j,0] where j
-  // is the last row-index for a given FSA-index; this contains zero.
-  // (It's the final-transition).
-  Array2<float> scores;
+    // `scores` is a contiguous matrix of dimension shape.TotSize1()
+    // by num_cols (where num_cols == num_symbols+1); the indexes into it are
+    // [row_idx, symbol+1], where row_ids is an ind_01 w.r.t. `shape` (see naming
+    // convention explained in utils.h).
+    //
+    //  You can access scores[row_idx,symbol+1] as scores.Data()[row_ids*scores.Dim1() + symbol+1]
+    //
+    // `scores` contains -infinity in certain locations: in scores[j,0] where
+    // j is not the last row-index for a given FSA-index, and scores[j,k] where
+    // j is the last row-index for a given FSA-index and k>0.  The remaining
+    // locations contain the neural net output, except scores[j,0] where j
+    // is the last row-index for a given FSA-index; this contains zero.
+    // (It's the final-transition).
+    Array2<float> scores;
 
-  // NOTE: our notion of "arc-index" / arc_idx is an index into scores.Data().
-  int32_t NumArcs() { return scores.Size0() * scores.Size1(); }
+    // NOTE: our notion of "arc-index" / arc_idx is an index into scores.Data().
+    int32_t NumArcs() {
+        return scores.Size0() * scores.Size1();
+    }
 };
 
 
@@ -209,7 +211,7 @@ FsaVec FsaVecFromTensor(const Tensor &t, bool *error);
                        the input `vec`.
  */
 Fsa GetFsaVecElement(const FsaVec &vec, int32_t i) {
-  return vec.Index(0, i);
+    return vec.Index(0, i);
 }
 
 
@@ -218,11 +220,11 @@ Fsa GetFsaVecElement(const FsaVec &vec, int32_t i) {
   the same type, just with different expectations on the number of axes!
  */
 FsaVec CreateFsaVec(const FsaVec &vec, int32_t num_fsas, Fsa **fsas) {
-  // Implementation goes to this templat:
-  //  template <typename T>
-  //  Ragged<T> Stack(int32_t axis, int32_t src_size, const Ragged<T> *src);
-  K2_CHECK(fsas[0]->NumAxes() == 2);
-  return Stack(0, num_fsas, fsas);
+    // Implementation goes to this templat:
+    //  template <typename T>
+    //  Ragged<T> Stack(int32_t axis, int32_t src_size, const Ragged<T> *src);
+    K2_CHECK(fsas[0]->NumAxes() == 2);
+    return Stack(0, num_fsas, fsas);
 }
 
 

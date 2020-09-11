@@ -24,148 +24,158 @@ namespace k2 {
 // Note: row_splits is of size num_rows + 1 and row_ids is of size
 // num_elements.
 struct RaggedShapeDim {
-  // Search for "row_splits concept" in utils.h for explanation.  row_splits
-  // is required; it must always be nonempty for a RaggedShapeDim to be valid.
-  Array1<int32_t> row_splits;
-  // Search for "row_ids concept" in utils.h for explanation
-  Array1<int32_t> row_ids;
-  // cached_tot_size can be viewed as the number of elements in a ragged
-  // matrix,
-  // or -1 if not known.  (Note: it can legitimately be 0, if there are no
-  // elements).
+    // Search for "row_splits concept" in utils.h for explanation.  row_splits
+    // is required; it must always be nonempty for a RaggedShapeDim to be valid.
+    Array1<int32_t> row_splits;
+    // Search for "row_ids concept" in utils.h for explanation
+    Array1<int32_t> row_ids;
+    // cached_tot_size can be viewed as the number of elements in a ragged
+    // matrix,
+    // or -1 if not known.  (Note: it can legitimately be 0, if there are no
+    // elements).
 
-  // If cached_tot_size >= 0 and row_ids is nonempty, cached_tot_size will
-  // equal row_ids.Dim().
-  // If cached_tot_size >= 0, it will be equal to
-  // row_splits[row_splits.Dim() - 1].
-  int32_t cached_tot_size;
+    // If cached_tot_size >= 0 and row_ids is nonempty, cached_tot_size will
+    // equal row_ids.Dim().
+    // If cached_tot_size >= 0, it will be equal to
+    // row_splits[row_splits.Dim() - 1].
+    int32_t cached_tot_size;
 };
 
 class RaggedShapeIndexIterator;
 
 class RaggedShape {
- public:
-  int32_t Dim0() const {
-    K2_CHECK_GT(axes_.size(), 0);
-    return axes_[0].row_splits.Dim() - 1;
-  }
-  /* Return the  total size on this axis.  Requires 0 <= axis < NumAxes() and
-     for axis=0 the returned value is the same as Dim0().  */
-  int32_t TotSize(int32_t axis) {
-    K2_CHECK_GE(axis, 0);
-    K2_CHECK_LT(axis, NumAxes());
-    if (axis == 0)
-      return Dim0();
-    else {
-      RaggedShapeDim &rsd = axes_[axis - 1];
-      if (rsd.cached_tot_size >= 0) {
-        return rsd.cached_tot_size;
-      } else {
-        // if we had row_ids set up, we should have set cached_tot_size.
-        K2_CHECK_EQ(rsd.row_ids.Dim(), 0);
-        K2_CHECK_GT(rsd.row_splits.Dim(), 0);
-        rsd.cached_tot_size = rsd.row_splits[rsd.row_splits.Dim() - 1];
-        return rsd.cached_tot_size;
-      }
+public:
+    int32_t Dim0() const {
+        K2_CHECK_GT(axes_.size(), 0);
+        return axes_[0].row_splits.Dim() - 1;
     }
-  }
+    /* Return the  total size on this axis.  Requires 0 <= axis < NumAxes() and
+       for axis=0 the returned value is the same as Dim0().  */
+    int32_t TotSize(int32_t axis) {
+        K2_CHECK_GE(axis, 0);
+        K2_CHECK_LT(axis, NumAxes());
+        if (axis == 0)
+            return Dim0();
+        else {
+            RaggedShapeDim &rsd = axes_[axis - 1];
+            if (rsd.cached_tot_size >= 0) {
+                return rsd.cached_tot_size;
+            } else {
+                // if we had row_ids set up, we should have set cached_tot_size.
+                K2_CHECK_EQ(rsd.row_ids.Dim(), 0);
+                K2_CHECK_GT(rsd.row_splits.Dim(), 0);
+                rsd.cached_tot_size = rsd.row_splits[rsd.row_splits.Dim() - 1];
+                return rsd.cached_tot_size;
+            }
+        }
+    }
 
-  // Returns the number of elements that a ragged array with this shape would
-  // have.
-  int32_t NumElements() { return TotSize(NumAxes() - 1); }
+    // Returns the number of elements that a ragged array with this shape would
+    // have.
+    int32_t NumElements() {
+        return TotSize(NumAxes() - 1);
+    }
 
-  /*
-    Return the row-splits for axis `axis` with `0 < axis < NumAxes()`.
-    The dimension is the (total) number of rows on this axis plus one,
-    and the elements are in the range [0,N] where N is the TotSize()
-    on axis `axis+1`
-   */
-  Array1<int32_t> &RowSplits(int32_t axis) {
-    K2_CHECK_GT(axis, 0);
-    K2_CHECK_LT(axis, NumAxes());
-    // Note row_splits is always nonempty for valid RaggedShapeDim.
-    return axes_[axis - 1].row_splits;
-  }
+    /*
+      Return the row-splits for axis `axis` with `0 < axis < NumAxes()`.
+      The dimension is the (total) number of rows on this axis plus one,
+      and the elements are in the range [0,N] where N is the TotSize()
+      on axis `axis+1`
+     */
+    Array1<int32_t> &RowSplits(int32_t axis) {
+        K2_CHECK_GT(axis, 0);
+        K2_CHECK_LT(axis, NumAxes());
+        // Note row_splits is always nonempty for valid RaggedShapeDim.
+        return axes_[axis - 1].row_splits;
+    }
 
-  /*
-    Return the row-ids for axis `axis` with `0 < axis < NumAxes()`.
-    The dimension is the number of elements on this axis == TotSize(axis).
-  */
-  Array1<int32_t> &RowIds(int32_t axis);
+    /*
+      Return the row-ids for axis `axis` with `0 < axis < NumAxes()`.
+      The dimension is the number of elements on this axis == TotSize(axis).
+    */
+    Array1<int32_t> &RowIds(int32_t axis);
 
-  int32_t NumAxes() const { return static_cast<int32_t>(axes_.size()) + 1; }
+    int32_t NumAxes() const {
+        return static_cast<int32_t>(axes_.size()) + 1;
+    }
 
-  // Gives max size of any list on the provided axis,
-  // with 0 < axis < NumAxes().  Equals max difference between successive
-  // row_splits on that  axis.
-  int32_t MaxSize(int32_t axis);
+    // Gives max size of any list on the provided axis,
+    // with 0 < axis < NumAxes().  Equals max difference between successive
+    // row_splits on that  axis.
+    int32_t MaxSize(int32_t axis);
 
-  ContextPtr &Context() { return axes_[0].row_splits.Context(); }
-  const ContextPtr &Context() const { return axes_[0].row_splits.Context(); }
+    ContextPtr &Context() {
+        return axes_[0].row_splits.Context();
+    }
+    const ContextPtr &Context() const {
+        return axes_[0].row_splits.Context();
+    }
 
-  /*
-    It is an error to call this if this.NumAxes() < 2.  This will return
-    a RaggedShape with one fewer axis, containing only the elements of
-    *this for which the value on axis `axis` is i.  CAUTION:
-    currently this only works for `axis == 0`.
+    /*
+      It is an error to call this if this.NumAxes() < 2.  This will return
+      a RaggedShape with one fewer axis, containing only the elements of
+      *this for which the value on axis `axis` is i.  CAUTION:
+      currently this only works for `axis == 0`.
 
-      @param [in]  axis   Axis to index on.  CAUTION: currently only 0
-                         is supported.
-      @param [in]  i     Index to select
-   */
-  RaggedShape Index(int32_t axis, int32_t i);
+        @param [in]  axis   Axis to index on.  CAUTION: currently only 0
+                           is supported.
+        @param [in]  i     Index to select
+     */
+    RaggedShape Index(int32_t axis, int32_t i);
 
-  /*
-    Given a vector `indexes` of length NumAxes() which is a valid index
-    for this RaggedShape, returns the integer offset for the element
-    at that index (0 <= ans < NumElements()).  Note: will not work if
-    this is on the GPU.
-   */
-  int32_t operator[](const std::vector<int32_t> &indexes);
+    /*
+      Given a vector `indexes` of length NumAxes() which is a valid index
+      for this RaggedShape, returns the integer offset for the element
+      at that index (0 <= ans < NumElements()).  Note: will not work if
+      this is on the GPU.
+     */
+    int32_t operator[](const std::vector<int32_t> &indexes);
 
-  RaggedShapeIndexIterator Iterator();
+    RaggedShapeIndexIterator Iterator();
 
-  RaggedShape(std::vector<RaggedShapeDim> &axes, bool check = true)
-      : axes_(axes) {
-    if (check) Check();
-  }
+    RaggedShape(std::vector<RaggedShapeDim> &axes, bool check = true)
+        : axes_(axes) {
+        if (check) Check();
+    }
 
-  // A RaggedShape constructed this way will not be a valid RaggedShape.
-  // The constructor is provided so you can immediately assign to it.
-  RaggedShape() = default;
+    // A RaggedShape constructed this way will not be a valid RaggedShape.
+    // The constructor is provided so you can immediately assign to it.
+    RaggedShape() = default;
 
-  // This makes sure that all of the row_splits, row_ids and cached_tot_size
-  // are populated
-  void Populate();
+    // This makes sure that all of the row_splits, row_ids and cached_tot_size
+    // are populated
+    void Populate();
 
-  RaggedShape(const RaggedShape &other) = default;
-  RaggedShape &operator=(const RaggedShape &other) = default;
+    RaggedShape(const RaggedShape &other) = default;
+    RaggedShape &operator=(const RaggedShape &other) = default;
 
-  // Axes() is intended for internal-ish use; users shouldn't really have to
-  // interact with it.
-  const std::vector<RaggedShapeDim> &Axes() const { return axes_; }
+    // Axes() is intended for internal-ish use; users shouldn't really have to
+    // interact with it.
+    const std::vector<RaggedShapeDim> &Axes() const {
+        return axes_;
+    }
 
-  // Check the RaggedShape for consistency; die on failure.
-  void Check();
+    // Check the RaggedShape for consistency; die on failure.
+    void Check();
 
-  // Convert to possibly different context.
-  RaggedShape To(ContextPtr ctx) const;
+    // Convert to possibly different context.
+    RaggedShape To(ContextPtr ctx) const;
 
- private:
-  // TODO: could probably do away with the std::vector and have a max size and
-  // a fixed length array (more efficient)
+private:
+    // TODO: could probably do away with the std::vector and have a max size and
+    // a fixed length array (more efficient)
 
-  // indexed by axis-index minus one... axis 0 is special, its dim
-  // equals axes_[0].row_splits.Dim()-1.
-  std::vector<RaggedShapeDim> axes_;
+    // indexed by axis-index minus one... axis 0 is special, its dim
+    // equals axes_[0].row_splits.Dim()-1.
+    std::vector<RaggedShapeDim> axes_;
 };
 
 // prints a RaggedShape as e.g. [ [ 0 1 ] [ 2 ] [] ].  Note, the 'values'
 // are just the positions in the array, this is for readability.
 inline std::ostream &operator<<(std::ostream &stream,
                                 const RaggedShape &shape) {
-  // TODO: implement it
-  return stream;
+    // TODO: implement it
+    return stream;
 }
 
 /*
@@ -178,47 +188,49 @@ inline std::ostream &operator<<(std::ostream &stream,
     }
 */
 class RaggedShapeIndexIterator {
- public:
-  const std::vector<int32_t> &Value();
-  void Next() {
-    linear_idx_++;
-    if (!Done()) UpdateVec();
-  }
-  bool Done() { return (linear_idx_ != shape_.NumElements()); }
-
-  explicit RaggedShapeIndexIterator(RaggedShape &shape)
-      : shape_(shape), linear_idx_(0), idx_(shape.NumAxes()) {
-    K2_CHECK(shape_.Context()->GetDeviceType() == kCpu);
-    for (int32_t i = 0; i + 1 < shape.NumAxes(); ++i) {
-      row_splits_.push_back(shape.RowSplits(i + 1).Data());
-      row_ids_.push_back(shape.RowIds(i + 1).Data());
+public:
+    const std::vector<int32_t> &Value();
+    void Next() {
+        linear_idx_++;
+        if (!Done()) UpdateVec();
     }
-    if (!Done()) UpdateVec();
-  }
-
- private:
-  void UpdateVec() {
-    K2_CHECK(!Done());
-    int32_t idx = linear_idx_, num_axes = row_splits_.size() + 1;
-    for (int32_t axis = num_axes - 1; axis > 0; axis--) {
-      int32_t prev_idx = row_splits_[axis - 1][idx],
-              row_start = row_ids_[axis - 1][prev_idx],
-              row_end = row_ids_[axis - 1][prev_idx + 1];
-      K2_CHECK(idx >= row_start && idx < row_end);
-      // e.g.: `idx` is an idx012, `prev_idx` is an idx01,
-      //    `row_start` and `row_end` are idx01x, and
-      //    this_idx is an idx2;
-      int32_t this_idx = idx - row_start;
-      idx_[axis] = this_idx;
-      idx = prev_idx;
+    bool Done() {
+        return (linear_idx_ != shape_.NumElements());
     }
-    idx_[0] = idx;
-  };
-  std::vector<const int32_t *> row_splits_;
-  std::vector<const int32_t *> row_ids_;
-  RaggedShape &shape_;
-  int32_t linear_idx_;
-  std::vector<int32_t> idx_;
+
+    explicit RaggedShapeIndexIterator(RaggedShape &shape)
+        : shape_(shape), linear_idx_(0), idx_(shape.NumAxes()) {
+        K2_CHECK(shape_.Context()->GetDeviceType() == kCpu);
+        for (int32_t i = 0; i + 1 < shape.NumAxes(); ++i) {
+            row_splits_.push_back(shape.RowSplits(i + 1).Data());
+            row_ids_.push_back(shape.RowIds(i + 1).Data());
+        }
+        if (!Done()) UpdateVec();
+    }
+
+private:
+    void UpdateVec() {
+        K2_CHECK(!Done());
+        int32_t idx = linear_idx_, num_axes = row_splits_.size() + 1;
+        for (int32_t axis = num_axes - 1; axis > 0; axis--) {
+            int32_t prev_idx = row_splits_[axis - 1][idx],
+                    row_start = row_ids_[axis - 1][prev_idx],
+                    row_end = row_ids_[axis - 1][prev_idx + 1];
+            K2_CHECK(idx >= row_start && idx < row_end);
+            // e.g.: `idx` is an idx012, `prev_idx` is an idx01,
+            //    `row_start` and `row_end` are idx01x, and
+            //    this_idx is an idx2;
+            int32_t this_idx = idx - row_start;
+            idx_[axis] = this_idx;
+            idx = prev_idx;
+        }
+        idx_[0] = idx;
+    };
+    std::vector<const int32_t *> row_splits_;
+    std::vector<const int32_t *> row_ids_;
+    RaggedShape &shape_;
+    int32_t linear_idx_;
+    std::vector<int32_t> idx_;
 };
 
 /*
@@ -351,45 +363,47 @@ RaggedShape RandomRaggedShape(int32_t min_num_axes = 2,
 
 template <typename T>
 struct Ragged {
-  RaggedShape shape;  // TODO: consider making the shape a pointer??
-  Array1<T> values;
+    RaggedShape shape;  // TODO: consider making the shape a pointer??
+    Array1<T> values;
 
-  Ragged(RaggedShape &shape, Array1<T> &values) : shape(shape), values(values) {
-    CHECK_EQ(shape.TotSize(shape.NumAxes() - 1), values.Dim());
-  }
+    Ragged(RaggedShape &shape, Array1<T> &values) : shape(shape), values(values) {
+        CHECK_EQ(shape.TotSize(shape.NumAxes() - 1), values.Dim());
+    }
 
-  // Default constructor will not leave this a valid Ragged object, you
-  // shouldn't do anything with it.  Both members will be initialized with
-  // default constructors.
-  Ragged() {}
+    // Default constructor will not leave this a valid Ragged object, you
+    // shouldn't do anything with it.  Both members will be initialized with
+    // default constructors.
+    Ragged() {}
 
-  // Note: 'values' will be uninitialized.
-  Ragged(RaggedShape &shape)
-      : shape(shape),
-        values(shape.Context(), shape.TotSize(shape.NumAxes() - 1)) {}
+    // Note: 'values' will be uninitialized.
+    Ragged(RaggedShape &shape)
+        : shape(shape),
+          values(shape.Context(), shape.TotSize(shape.NumAxes() - 1)) {}
 
-  // This will only work on the CPU, and is intended for use in testing code.
-  T operator[](const std::vector<int32_t> &indexes) {
-    return values[shape[indexes]];
-  }
+    // This will only work on the CPU, and is intended for use in testing code.
+    T operator[](const std::vector<int32_t> &indexes) {
+        return values[shape[indexes]];
+    }
 
-  ContextPtr Context() { return values.Context(); }
+    ContextPtr Context() {
+        return values.Context();
+    }
 
-  /*
-    It is an error to call this if this.NumAxes() < 2.  This will return
-    a Ragged<T> with one fewer axis, containing only the elements of
-    *this for which the value on the provided axis is i.  CAUTION:
-    currently this only works for `axis == 0`.
+    /*
+      It is an error to call this if this.NumAxes() < 2.  This will return
+      a Ragged<T> with one fewer axis, containing only the elements of
+      *this for which the value on the provided axis is i.  CAUTION:
+      currently this only works for `axis == 0`.
 
-      @param [in]  axis   Axis to index on.  CAUTION: currently only 0
-                         is supported.
-      @param [in]  i     Index to select
-   */
-  Ragged<T> Index(int32_t axis, int32_t value);
+        @param [in]  axis   Axis to index on.  CAUTION: currently only 0
+                           is supported.
+        @param [in]  i     Index to select
+     */
+    Ragged<T> Index(int32_t axis, int32_t value);
 
-  Ragged<T> To(ContextPtr ctx) {
-    return Ragged<T>(shape.To(ctx), values.To(ctx));
-  }
+    Ragged<T> To(ContextPtr ctx) {
+        return Ragged<T>(shape.To(ctx), values.To(ctx));
+    }
 };
 
 template <typename T>
