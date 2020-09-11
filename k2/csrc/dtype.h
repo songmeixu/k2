@@ -19,46 +19,40 @@
 namespace k2 {
 
 enum BaseType {      // BaseType is the *general type*
-    kUnknownBase = 0,  // e.g. can use this for structs
-    kFloatBase = 1,
-    kIntBase = 2,   // signed int
-    kUintBase = 3,  // unsigned int
+  kUnknownBase = 0,  // e.g. can use this for structs
+  kFloatBase = 1,
+  kIntBase = 2,   // signed int
+  kUintBase = 3,  // unsigned int
 };
 
 class DtypeTraits {
-public:
-    int NumBytes() const {
-        return num_bytes_;
-    }
-    BaseType GetBaseType() const {
-        return static_cast<BaseType>(base_type_);
-    }
-    const char *Name() const {
-        return name_;
-    }
+ public:
+  int NumBytes() const { return num_bytes_; }
+  BaseType GetBaseType() const { return static_cast<BaseType>(base_type_); }
+  const char *Name() const { return name_; }
 
-    DtypeTraits(BaseType base_type, int32_t num_bytes, const char *name,
-                int32_t num_scalars = 1, int32_t misc = 0)
-        : base_type_(static_cast<char>(base_type)),
-          num_scalars_(num_scalars),
-          misc_(misc),
-          num_bytes_(num_bytes),
-          name_(name) {
-        K2_CHECK_EQ(num_bytes_ % num_scalars_, 0);
-    }
+  DtypeTraits(BaseType base_type, int32_t num_bytes, const char *name,
+              int32_t num_scalars = 1, int32_t misc = 0)
+      : base_type_(static_cast<char>(base_type)),
+        num_scalars_(num_scalars),
+        misc_(misc),
+        num_bytes_(num_bytes),
+        name_(name) {
+    K2_CHECK_EQ(num_bytes_ % num_scalars_, 0);
+  }
 
-private:
-    // We may add more
-    char base_type_;    // BaseType converted to char
-    char num_scalars_;  // currently always 1; may be greater for vector types in
-    // future.  Must divide num_bytes exactly.
-    char misc_;  // field that is normally 0, but we may use for extensions in
-    // future.
-    char num_bytes_;  // sizeof() this type in bytes, gives stride.  The size per
-    // scalar element is given by bytes_per_elem / num_scalars;
-    // we do it this way so that the stride in bytes is easily
-    // extractable.
-    const char *name_;  // name, e.g. "float", "int8", "int32"
+ private:
+  // We may add more
+  char base_type_;    // BaseType converted to char
+  char num_scalars_;  // currently always 1; may be greater for vector types in
+  // future.  Must divide num_bytes exactly.
+  char misc_;  // field that is normally 0, but we may use for extensions in
+  // future.
+  char num_bytes_;  // sizeof() this type in bytes, gives stride.  The size per
+  // scalar element is given by bytes_per_elem / num_scalars;
+  // we do it this way so that the stride in bytes is easily
+  // extractable.
+  const char *name_;  // name, e.g. "float", "int8", "int32"
 };
 
 // We initialize this in dtype.cu
@@ -66,18 +60,18 @@ extern const DtypeTraits g_dtype_traits_array[];
 
 // It's just an enum, we can use TraitsOf(dtype).NumBytes() and so on..
 enum Dtype {
-    kFloatDtype,
-    kDoubleDtype,
-    kInt8Dtype,
-    kInt16Dtype,
-    kInt32Dtype,
-    kInt64Dtype,
-    kUint32Dtype,
-    kUint64Dtype,
+  kFloatDtype,
+  kDoubleDtype,
+  kInt8Dtype,
+  kInt16Dtype,
+  kInt32Dtype,
+  kInt64Dtype,
+  kUint32Dtype,
+  kUint64Dtype,
 };
 
 inline DtypeTraits TraitsOf(Dtype dtype) {
-    return g_dtype_traits_array[static_cast<int32_t>(dtype)];
+  return g_dtype_traits_array[static_cast<int32_t>(dtype)];
 }
 
 template <typename T>
@@ -85,42 +79,42 @@ struct DtypeOf;
 
 template <>
 struct DtypeOf<float> {
-    static const Dtype dtype = kFloatDtype;
+  static const Dtype dtype = kFloatDtype;
 };
 
 template <>
 struct DtypeOf<double> {
-    static const Dtype dtype = kDoubleDtype;
+  static const Dtype dtype = kDoubleDtype;
 };
 
 template <>
 struct DtypeOf<int8_t> {
-    static const Dtype dtype = kInt8Dtype;
+  static const Dtype dtype = kInt8Dtype;
 };
 
 template <>
 struct DtypeOf<int16_t> {
-    static const Dtype dtype = kInt16Dtype;
+  static const Dtype dtype = kInt16Dtype;
 };
 
 template <>
 struct DtypeOf<int32_t> {
-    static const Dtype dtype = kInt32Dtype;
+  static const Dtype dtype = kInt32Dtype;
 };
 
 template <>
 struct DtypeOf<int64_t> {
-    static const Dtype dtype = kInt64Dtype;
+  static const Dtype dtype = kInt64Dtype;
 };
 
 template <>
 struct DtypeOf<uint32_t> {
-    static const Dtype dtype = kUint32Dtype;
+  static const Dtype dtype = kUint32Dtype;
 };
 
 template <>
 struct DtypeOf<uint64_t> {
-    static const Dtype dtype = kUint64Dtype;
+  static const Dtype dtype = kUint64Dtype;
 };
 
 /*

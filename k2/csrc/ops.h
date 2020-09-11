@@ -38,31 +38,31 @@ namespace k2 {
 template <typename T>
 __global__ void TransposeKernel(int32_t rows, int32_t cols, const T *input,
                                 T *output) {
-    // TODO(haowen): here we need to handle different type of T to avoid bank
-    // conflicts, the size of cache now is fine for type size with 32bit (e.g.
-    // int32 or float).
-    __shared__ T cache[kTransTileDim][kTransTileDim + 1];
+  // TODO(haowen): here we need to handle different type of T to avoid bank
+  // conflicts, the size of cache now is fine for type size with 32bit (e.g.
+  // int32 or float).
+  __shared__ T cache[kTransTileDim][kTransTileDim + 1];
 
-    // input index, in a coalesced manner.
-    int32_t x = threadIdx.x + blockIdx.x * kTransTileDim;
-    int32_t y = threadIdx.y + blockIdx.y * kTransTileDim;
+  // input index, in a coalesced manner.
+  int32_t x = threadIdx.x + blockIdx.x * kTransTileDim;
+  int32_t y = threadIdx.y + blockIdx.y * kTransTileDim;
 
-    for (int32_t i = 0; i < kTransTileDim; i += kTransBlockRows) {
-        if (x < cols && (y + i) < rows) {
-            cache[threadIdx.y + i][threadIdx.x] = input[(y + i) * cols + x];
-        }
+  for (int32_t i = 0; i < kTransTileDim; i += kTransBlockRows) {
+    if (x < cols && (y + i) < rows) {
+      cache[threadIdx.y + i][threadIdx.x] = input[(y + i) * cols + x];
     }
+  }
 
-    __syncthreads();
+  __syncthreads();
 
-    // output index, in a coalesced manner
-    x = threadIdx.x + blockIdx.y * kTransTileDim;
-    y = threadIdx.y + blockIdx.x * kTransTileDim;
-    for (int32_t i = 0; i < kTransTileDim; i += kTransBlockRows) {
-        if (x < rows && (y + i) < cols) {
-            output[(y + i) * rows + x] = cache[threadIdx.x][threadIdx.y + i];
-        }
+  // output index, in a coalesced manner
+  x = threadIdx.x + blockIdx.y * kTransTileDim;
+  y = threadIdx.y + blockIdx.x * kTransTileDim;
+  for (int32_t i = 0; i < kTransTileDim; i += kTransBlockRows) {
+    if (x < rows && (y + i) < cols) {
+      output[(y + i) * rows + x] = cache[threadIdx.x][threadIdx.y + i];
     }
+  }
 }
 
 /*
@@ -82,33 +82,33 @@ __global__ void TransposeKernel(int32_t rows, int32_t cols, const T *input,
 */
 template <typename T>
 void Transpose(ContextPtr &c, const Array2<T> &src, Array2<T> *dest) {
-    assert(c->IsCompatible(*src.Context()));
-    assert(c->IsCompatible(*dest->Context()));
-    int32_t rows = src.Dim0();
-    int32_t cols = src.Dim1();
-    // TODO(haowen): limit the number of elements?
-    assert(rows == dest->Dim1());
-    assert(cols == dest->Dim0());
-    const T *src_data = src.Data();
-    T *dest_data = dest->Data();
-    DeviceType d = c->GetDeviceType();
-    using SumType = typename std::decay<decltype(dest[0])>::type;
-    if (d == kCpu) {
-        for (int i = 0; i < cols; ++i) {
-            for (int j = 0; j < rows; ++j) {
-                dest_data[i * rows + j] = src_data[j * cols + i];
-            }
-        }
-    } else {
-        assert(d == kCuda);
-        dim3 block_size(kTransTileDim, kTransBlockRows, 1);
-        dim3 grid_size(NumBlocks(cols, kTransTileDim),
-                       NumBlocks(rows, kTransTileDim));
-        TransposeKernel<<<grid_size, block_size, 0, c->GetCudaStream()>>>(
-            rows, cols, src_data, dest_data);
-        auto ret = cudaDeviceSynchronize();
-        K2_CHECK_CUDA_ERROR(ret);
+  assert(c->IsCompatible(*src.Context()));
+  assert(c->IsCompatible(*dest->Context()));
+  int32_t rows = src.Dim0();
+  int32_t cols = src.Dim1();
+  // TODO(haowen): limit the number of elements?
+  assert(rows == dest->Dim1());
+  assert(cols == dest->Dim0());
+  const T *src_data = src.Data();
+  T *dest_data = dest->Data();
+  DeviceType d = c->GetDeviceType();
+  using SumType = typename std::decay<decltype(dest[0])>::type;
+  if (d == kCpu) {
+    for (int i = 0; i < cols; ++i) {
+      for (int j = 0; j < rows; ++j) {
+        dest_data[i * rows + j] = src_data[j * cols + i];
+      }
     }
+  } else {
+    assert(d == kCuda);
+    dim3 block_size(kTransTileDim, kTransBlockRows, 1);
+    dim3 grid_size(NumBlocks(cols, kTransTileDim),
+                   NumBlocks(rows, kTransTileDim));
+    TransposeKernel<<<grid_size, block_size, 0, c->GetCudaStream()>>>(
+        rows, cols, src_data, dest_data);
+    auto ret = cudaDeviceSynchronize();
+    K2_CHECK_CUDA_ERROR(ret);
+  }
 }
 
 /*
@@ -128,7 +128,7 @@ void Transpose(ContextPtr &c, const Array2<T> &src, Array2<T> *dest) {
  */
 template <typename S, typename T>
 void ExclusiveSum(Array1<S> &src, Array1<T> *dest) {
-    // TODO(haowen): implement
+  // TODO(haowen): implement
 }
 
 /*  wrapper for the ExclusiveSum above.  Will satisfy
@@ -136,9 +136,9 @@ void ExclusiveSum(Array1<S> &src, Array1<T> *dest) {
  */
 template <typename T>
 Array1<T> ExclusiveSum(Array1<T> &src) {
-    Array1<T> ans(src.Context(), src.Dim());
-    ExclusiveSum(src, &ans);
-    return ans;
+  Array1<T> ans(src.Context(), src.Dim());
+  ExclusiveSum(src, &ans);
+  return ans;
 }
 
 /*
@@ -176,7 +176,7 @@ void ExclusiveSum(ContextPtr &c, Array2<T> &src, Array2<T> *dest, int axis);
 
 template <typename T>
 void ExclusiveSum(Array2<T> &src, Array2<T> *dest) {
-    // TODO(haowen): implement it
+  // TODO(haowen): implement it
 }
 
 /*
@@ -325,7 +325,8 @@ void RowSplitsToRowIds(Array1<int32_t> &row_splits, Array1<int32_t> &row_ids);
                            non-negative, non-decreasing, and all elements are
                            less than num_rows.
  */
-void RowIdsToRowSplits(const Array1<int32_t> &row_ids, Array1<int32_t> &row_splits);
+void RowIdsToRowSplits(const Array1<int32_t> &row_ids,
+                       Array1<int32_t> &row_splits);
 
 /*
    Validate a row_ids vector; this just makes sure its elements are nonnegative
@@ -339,7 +340,6 @@ void RowIdsToRowSplits(const Array1<int32_t> &row_ids, Array1<int32_t> &row_spli
      @return   Returns true if `row_ids` is a plausible row_ids vector.
 */
 bool ValidateRowIds(Array1<int32_t> &row_ids, Array1<int32_t> *temp = nullptr);
-
 
 /*
    Validate a row_splits vector; this just makes sure its elements are

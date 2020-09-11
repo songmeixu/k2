@@ -264,15 +264,15 @@ void RowSplitsToRowIds(ContextPtr &c, int32_t num_rows,
 __forceinline__ __host__ __device__ int32_t
 RowIdFromRowSplits(int32_t num_rows, const int32_t *row_splits, int32_t index,
                    int32_t num_indexes) {
-    // lower_bound gives the first i in row_splits that's greater than `index`.
-    // That implies the previous one is <= index.
-    //
-    // auto i =
-    // std::lower_bound(row_splits + 1, row_splits + num_rows + 1, index) - 1;
-    // K2_DCHECK(static_cast<uint32_t>(i) < static_cast<uint32_t>(num_rows));
-    // TODO!  Implement std::lower_bound ourselves.
-    // return *i;
-    return 0;  // TODO!  Does not work.
+  // lower_bound gives the first i in row_splits that's greater than `index`.
+  // That implies the previous one is <= index.
+  //
+  // auto i =
+  // std::lower_bound(row_splits + 1, row_splits + num_rows + 1, index) - 1;
+  // K2_DCHECK(static_cast<uint32_t>(i) < static_cast<uint32_t>(num_rows));
+  // TODO!  Implement std::lower_bound ourselves.
+  // return *i;
+  return 0;  // TODO!  Does not work.
 }
 
 /*
@@ -308,20 +308,20 @@ void RowIdsToRowSplits(ContextPtr &c, int32_t num_elems, const int32_t *row_ids,
 // j is the job-index.  (I know that job and task are synonyms; jobs are
 // the `split-up pieces of tasks`, like sub-tasks).
 struct TaskRedirect {
-    // task_id will satisfy 0 <= task_id < num_tasks (w.r.t. the `num_tasks`
-    // provided to GetTaskRedirect().  These are the original tasks that we were
-    // trying to allocate jobs to.  Each job is assigned a task_id.
-    int32_t task_id;
-    // The number of jobs allocated to this task; will be at least 1.  All the
-    // TaskRedirect objects with the same task_id will have the same
-    // `num_jobs`
-    uint16_t num_jobs_this_task;
-    // The job_id, will satisfy 0 <= job_id_this_task < num_jobs_this_task.  All
-    // those job_id values will be represented in the array of TaskRedirect, but
-    // they won't all be consecutive (the array has two halves; in one, the
-    // task_id goes 0,1,2,..., and in the second half the task_is is allocated
-    // more proportionally to the size of the task.
-    uint16_t job_id_this_task;
+  // task_id will satisfy 0 <= task_id < num_tasks (w.r.t. the `num_tasks`
+  // provided to GetTaskRedirect().  These are the original tasks that we were
+  // trying to allocate jobs to.  Each job is assigned a task_id.
+  int32_t task_id;
+  // The number of jobs allocated to this task; will be at least 1.  All the
+  // TaskRedirect objects with the same task_id will have the same
+  // `num_jobs`
+  uint16_t num_jobs_this_task;
+  // The job_id, will satisfy 0 <= job_id_this_task < num_jobs_this_task.  All
+  // those job_id values will be represented in the array of TaskRedirect, but
+  // they won't all be consecutive (the array has two halves; in one, the
+  // task_id goes 0,1,2,..., and in the second half the task_is is allocated
+  // more proportionally to the size of the task.
+  uint16_t job_id_this_task;
 };
 
 /*
@@ -413,25 +413,25 @@ void EvalWithRedirect(cudaStream_t stream, int32_t num_jobs,
                       TaskRedirect *redirect, int32_t min_threads_per_job,
                       int32_t tot_work, int32_t target_num_loops,
                       LambdaT &lambda) {
-    // TODO..
+  // TODO..
 }
 
 __host__ __device__ __forceinline__ int32_t FloatAsInt(float f) {
-    union {
-        float f;
-        int i;
-    } u;
-    u.f = f;
-    return u.i;
+  union {
+    float f;
+    int i;
+  } u;
+  u.f = f;
+  return u.i;
 }
 
 __host__ __device__ __forceinline__ float IntAsFloat(int32_t i) {
-    union {
-        float f;
-        int i;
-    } u;
-    u.i = i;
-    return u.f;
+  union {
+    float f;
+    int i;
+  } u;
+  u.i = i;
+  return u.f;
 }
 
 /*
@@ -440,12 +440,12 @@ __host__ __device__ __forceinline__ float IntAsFloat(int32_t i) {
  atomicCAS
 */
 __host__ __device__ __forceinline__ int32_t FloatToOrderedInt(float f) {
-    int32_t i = FloatAsInt(f);
-    return (i >= 0) ? i : i ^ 0x7FFFFFFF;
+  int32_t i = FloatAsInt(f);
+  return (i >= 0) ? i : i ^ 0x7FFFFFFF;
 }
 
 __host__ __device__ __forceinline__ float OrderedIntToFloat(int32_t i) {
-    return IntAsFloat((i >= 0) ? i : i ^ 0x7FFFFFFF);
+  return IntAsFloat((i >= 0) ? i : i ^ 0x7FFFFFFF);
 }
 
 /*
@@ -453,17 +453,17 @@ __host__ __device__ __forceinline__ float OrderedIntToFloat(int32_t i) {
   clarity.  So we can use this in lambdas that run on both host and device.
  */
 __host__ __forceinline__ int32_t atomicMax(int32_t *address, int32_t val) {
-    int32_t old = *address;
-    if (old < val) *address = val;
-    return old;
+  int32_t old = *address;
+  if (old < val) *address = val;
+  return old;
 }
 
 // have to figure out if there's a better place to put this
 template <typename T>
 std::ostream &operator<<(std::ostream &os, const std::vector<T> &vec) {
-    os << "[ ";
-    for (auto iter = vec.begin(); iter != vec.end(); ++iter) os << *iter << ' ';
-    os << ']';
+  os << "[ ";
+  for (auto iter = vec.begin(); iter != vec.end(); ++iter) os << *iter << ' ';
+  os << ']';
 }
 
 }  // namespace k2
