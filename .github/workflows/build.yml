@@ -9,12 +9,12 @@ name: build
 on:
   push:
     branches:
-      - master
-      - cuda
+      # - master
+      # - cuda
   pull_request:
     branches:
-      - master
-      - cuda
+      # - master
+      # - cuda
 
 env:
   BUILD_TYPE: Debug
