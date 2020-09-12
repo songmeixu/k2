@@ -34,25 +34,25 @@ class DtypeTraits {
   DtypeTraits(BaseType base_type, int32_t num_bytes, const char *name,
               int32_t num_scalars = 1, int32_t misc = 0)
       : base_type_(base_type),
-        num_scalars_(num_scalars),
-        misc_(misc),
-        num_bytes_(num_bytes),
+        num_scalars_(static_cast<int8_t>(num_scalars)),
+        misc_(static_cast<int8_t>(misc)),
+        num_bytes_(static_cast<int8_t>(num_bytes)),
         name_(name) {
     K2_CHECK_EQ(num_bytes_ % num_scalars_, 0);
   }
 
  private:
   // We may add more
-  BaseType base_type_;    // BaseType converted to char
-  int32_t num_scalars_;  // currently always 1; may be greater for vector types in
-                      // future.  Must divide num_bytes exactly.
-  int32_t misc_;  // field that is normally 0, but we may use for extensions in
-               // future.
-  int32_t num_bytes_;  // sizeof() this type in bytes, gives stride.  The size per
-                    // scalar element is given by bytes_per_elem / num_scalars;
-                    // we do it this way so that the stride in bytes is easily
-                    // extractable.
-  const char *name_;  // name, e.g. "float", "int8", "int32_t"
+  BaseType base_type_;  // BaseType converted to char
+  int8_t num_scalars_;  // currently always 1; may be greater for vector types in
+                        // future.  Must divide num_bytes exactly.
+  int8_t misc_;         // field that is normally 0, but we may use for extensions in
+                        // future.
+  int8_t num_bytes_;    // sizeof() this type in bytes, gives stride.  The size per
+                        // scalar element is given by bytes_per_elem / num_scalars;
+                        // we do it this way so that the stride in bytes is easily
+                        // extractable.
+  const char *name_;    // name, e.g. "float", "int8", "int32_t"
 };
 
 // We initialize this in dtype.cu

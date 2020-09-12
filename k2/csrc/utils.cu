@@ -243,9 +243,9 @@ void GetTaskRedirect(cudaStream_t stream, int32_t num_tasks,
     int32_t dim_block = 256;
     int32_t dim_grid = NumBlocks(tot_threads, dim_block);
 
-    GetTaskRedirect<threads_per_task><<<dim_block, dim_grid, 0, stream>>>(
-        num_tasks, row_splits, redirect_out);
-    K2_CHECK_CUDA_ERROR(cudaGetLastError());
+    K2_CUDA_SAFE_CALL(
+        GetTaskRedirect<threads_per_task><<<dim_block, dim_grid, 0, stream>>>(
+            num_tasks, row_splits, redirect_out));
   }
 
 }
@@ -356,11 +356,12 @@ void RowIdsToRowSplits(
           tot_threads = num_elems * threads_per_elem;
       int32_t dim_block = 256;
       int32_t dim_grid = NumBlocks(tot_threads, dim_block);
-      RowIdsToRowSplitsKernel<<<dim_block, dim_grid, 0, c->GetCudaStream()>>>(
-          num_elems, threads_per_elem,
-          row_ids, num_rows,
-          row_splits);
-      K2_CHECK_CUDA_ERROR(cudaGetLastError());
+      K2_CUDA_SAFE_CALL(
+          RowIdsToRowSplitsKernel
+              <<<dim_block, dim_grid, 0, c->GetCudaStream()>>>(
+                  num_elems, threads_per_elem,
+                  row_ids, num_rows,
+                  row_splits));
     }
   }
 }
@@ -425,9 +426,10 @@ void RowSplitsToRowIds(ContextPtr &c, int32_t num_rows, const int32_t *row_split
       int32_t dim_block = 256;
       int32_t dim_grid = NumBlocks(tot_threads, dim_block);
 
-      RowSplitsToRowIdsKernel<<<dim_block, dim_grid, 0, c->GetCudaStream()>>>(
-          num_rows, threads_per_row, row_splits, num_elems, row_ids);
-      K2_CHECK_CUDA_ERROR(cudaGetLastError());
+      K2_CUDA_SAFE_CALL(
+          RowSplitsToRowIdsKernel
+              <<<dim_block, dim_grid, 0, c->GetCudaStream()>>>(
+                  num_rows, threads_per_row, row_splits, num_elems, row_ids));
     } else {
       // TODO: Will probably just delete this branch at some point.
 

@@ -104,8 +104,8 @@ void Eval(cudaStream_t stream, int32_t n, LambdaT &lambda) {
   } else {
     int32_t block_size = 256;
     int32_t grid_size = NumBlocks(n, block_size);
-    eval_lambda<LambdaT><<<grid_size, block_size, 0, stream>>>(n, lambda);
-    K2_DCHECK_CUDA_ERROR(cudaGetLastError());
+    K2_CUDA_SAFE_CALL(
+        eval_lambda<LambdaT><<<grid_size, block_size, 0, stream>>>(n, lambda));
   }
 }
 

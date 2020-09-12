@@ -162,8 +162,7 @@ class CudaContext : public Context {
  public:
   CudaContext(int32_t gpu_id) : gpu_id_(gpu_id) {
     if (gpu_id_ != -1) {
-      cudaSetDevice(gpu_id_);
-      K2_CHECK_CUDA_ERROR(cudaGetLastError());
+      K2_CUDA_SAFE_CALL(cudaSetDevice(gpu_id_));
     }
     // TODO(haowen): choose one from available GPUs if gpu_id == -1?
     // and handle GPU ids from multiple machines.

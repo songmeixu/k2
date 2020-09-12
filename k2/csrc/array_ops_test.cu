@@ -54,15 +54,12 @@ void GpuTransposeTest(int32_t num_rows, int32_t num_cols, int32_t num_reps = 1,
   Array2<T> dest(num_cols, num_rows, num_rows, 0, dest_region);
 
   // warm up in case that the first kernel launch takes longer time.
-  // todo: fix like error:
-  // undefined reference to `void k2::Transpose<int>
-  // (std::shared_ptr<k2::Context>&, k2::Array2<int> const&, k2::Array2<int>*)'
-//  Transpose(context, src, &dest);
-//
+  Transpose(context, src, &dest);
+
   Timer t;
-//  for (int32_t i = 0; i < num_reps; ++i) {
-//    Transpose(context, src, &dest);
-//  }
+  for (int32_t i = 0; i < num_reps; ++i) {
+    Transpose(context, src, &dest);
+  }
   double elapsed = t.Elapsed();
 
   std::vector<T> host_dest(num_elements);

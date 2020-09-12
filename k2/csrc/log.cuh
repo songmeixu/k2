@@ -195,11 +195,12 @@ class Voidifier {
 #define K2_CHECK_CUDA_ERROR(x)  \
   K2_CHECK_EQ(x, cudaSuccess) << " Error: " << cudaGetErrorString(x) << ". "
 
-#define K2_CUDA_SAFE_CALL(...)               \
-  do {                                       \
-    (__VA_ARGS__);                           \
-    cudaDeviceSynchronize();                 \
-    K2_CHECK_CUDA_ERROR(cudaGetLastError()); \
+#define K2_CUDA_SAFE_CALL(...)                                             \
+  do {                                                                     \
+    (__VA_ARGS__);                                                         \
+    ::k2::internal::kDisableDebug ? cudaSuccess : cudaDeviceSynchronize(); \
+    cudaError_t e = cudaGetLastError();                                    \
+    K2_CHECK_CUDA_ERROR(e);                                                \
   } while (0)
 
 // ============================================================
