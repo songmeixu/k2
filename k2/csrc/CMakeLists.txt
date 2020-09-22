@@ -21,8 +21,8 @@ add_library(context STATIC
     )
 set_target_properties(context PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
-# lib deps
-target_link_libraries(context PUBLIC cub)
+# include cub
+target_include_directories(context PRIVATE ${CUB_INCLUDE_DIRS})
 
 #---------------------------- Test K2 CUDA sources ----------------------------
 
@@ -47,8 +47,8 @@ function(k2_add_cuda_test name)
   target_link_libraries(${target_name}
       PRIVATE
       context
-      gtest
-      gtest_main
+      GTest::gtest
+      GTest::gtest_main
       )
   add_test(NAME "Test.Cuda.${target_name}"
       COMMAND

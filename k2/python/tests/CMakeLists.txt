@@ -4,7 +4,7 @@ function(k2_add_py_test source)
 
   add_test(NAME ${name}
     COMMAND
-      "${PYTHON_EXECUTABLE}"
+      Python3::Interpreter
       "${CMAKE_CURRENT_SOURCE_DIR}/${source}"
   )
 

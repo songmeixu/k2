@@ -11,6 +11,10 @@ endif()
 
 cmake_minimum_required(VERSION 3.8 FATAL_ERROR)
 
+set(CMAKE_TOOLCHAIN_FILE
+    ${CMAKE_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake
+    CACHE STRING "Vcpkg toolchain file")
+
 project(k2 CUDA CXX)
 
 # ----------------- Supported build types for K2 project -----------------
@@ -90,6 +94,9 @@ else()
   endforeach()
 endif()
 
+find_package(pybind11 CONFIG REQUIRED)
+find_package(GTest CONFIG REQUIRED)
+find_path(CUB_INCLUDE_DIRS "cub/agent/agent_histogram.cuh")
 enable_testing()
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
