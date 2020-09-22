@@ -31,8 +31,8 @@ endif()
 add_library(context SHARED ${context_srcs})
 set_target_properties(context PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
-# lib deps
-target_link_libraries(context PUBLIC cub)
+# include cub
+target_include_directories(context PRIVATE ${CUB_INCLUDE_DIRS})
 if(USE_PYTORCH)
   target_link_libraries(context PUBLIC ${TORCH_LIBRARIES})
 endif()
@@ -61,8 +61,8 @@ function(k2_add_cuda_test name)
       PRIVATE
       context
       fsa  # for code in k2/csrc/host
-      gtest
-      gtest_main
+      GTest::gtest
+      GTest::gtest_main
       )
   add_test(NAME "Test.Cuda.${target_name}"
       COMMAND
