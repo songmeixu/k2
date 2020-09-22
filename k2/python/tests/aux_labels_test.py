@@ -17,7 +17,6 @@ import k2
 
 
 class TestAuxLabelsMapper(unittest.TestCase):
-
     def setUp(self):
         indexes = torch.IntTensor([0, 1, 3, 6, 7])
         data = torch.IntTensor([1, 2, 3, 4, 5, 6, 7])
@@ -95,7 +94,6 @@ class TestAuxLabelsMapper(unittest.TestCase):
 
 
 class TestFstInverter(unittest.TestCase):
-
     def test_case_1(self):
         # empty fsa
         array_size = k2.IntArray2Size(0, 0)
@@ -117,7 +115,7 @@ class TestFstInverter(unittest.TestCase):
 
     def test_case_2(self):
         # top-sorted input FSA
-        s = r'''
+        s = r"""
         0 1 1
         0 1 0
         0 3 2
@@ -128,7 +126,7 @@ class TestFstInverter(unittest.TestCase):
         2 5 -1
         4 5 -1
         5
-        '''
+        """
 
         fsa_in = k2.str_to_fsa(s)
         indexes = torch.IntTensor([0, 2, 3, 3, 6, 6, 7, 7, 8, 9])
@@ -142,23 +140,36 @@ class TestFstInverter(unittest.TestCase):
         labels_out = k2.AuxLabels.create_array_with_size(aux_size)
         inverter.get_output(fsa_out, labels_out)
         expected_arc_indexes = torch.IntTensor(
-            [0, 3, 4, 7, 8, 9, 11, 11, 12, 12])
-        expected_arcs = torch.IntTensor([[0, 1, 1], [0, 2, 3], [0, 6, 0],
-                                         [1, 2, 2], [2, 3, 5], [2, 6, 0],
-                                         [2, 8, -1], [3, 4, 6], [4, 5, 7],
-                                         [5, 6, 0], [5, 8, -1], [7, 8, -1]])
+            [0, 3, 4, 7, 8, 9, 11, 11, 12, 12]
+        )
+        expected_arcs = torch.IntTensor(
+            [
+                [0, 1, 1],
+                [0, 2, 3],
+                [0, 6, 0],
+                [1, 2, 2],
+                [2, 3, 5],
+                [2, 6, 0],
+                [2, 8, -1],
+                [3, 4, 6],
+                [4, 5, 7],
+                [5, 6, 0],
+                [5, 8, -1],
+                [7, 8, -1],
+            ]
+        )
         self.assertTrue(torch.equal(fsa_out.indexes, expected_arc_indexes))
         self.assertTrue(torch.equal(fsa_out.data, expected_arcs))
         expected_label_indexes = torch.IntTensor(
-            [0, 0, 0, 1, 2, 2, 3, 4, 4, 5, 5, 6, 7])
+            [0, 0, 0, 1, 2, 2, 3, 4, 4, 5, 5, 6, 7]
+        )
         expected_labels = torch.IntTensor([2, 1, 4, -1, 3, -1, -1])
-        self.assertTrue(torch.equal(labels_out.indexes,
-                                    expected_label_indexes))
+        self.assertTrue(torch.equal(labels_out.indexes, expected_label_indexes))
         self.assertTrue(torch.equal(labels_out.data, expected_labels))
 
     def test_case_3(self):
         # non-top-sorted input FSA
-        s = r'''
+        s = r"""
         0 1 1
         0 1 0
         0 3 2
@@ -169,7 +180,7 @@ class TestFstInverter(unittest.TestCase):
         3 1 6
         4 5 -1
         5
-        '''
+        """
 
         fsa_in = k2.str_to_fsa(s)
         indexes = torch.IntTensor([0, 2, 3, 3, 6, 6, 7, 8, 10, 11])
@@ -183,21 +194,34 @@ class TestFstInverter(unittest.TestCase):
         labels_out = k2.AuxLabels.create_array_with_size(aux_size)
         inverter.get_output(fsa_out, labels_out)
         expected_arc_indexes = torch.IntTensor(
-            [0, 3, 4, 5, 7, 8, 9, 11, 12, 13, 13])
-        expected_arcs = torch.IntTensor([[0, 1, 1], [0, 3, 3], [0, 7, 0],
-                                         [1, 3, 2], [2, 3, 10], [3, 4, 5],
-                                         [3, 7, 0], [4, 5, 6], [5, 6, 7],
-                                         [6, 3, 8], [6, 9, -1], [7, 2, 9],
-                                         [8, 9, -1]])
+            [0, 3, 4, 5, 7, 8, 9, 11, 12, 13, 13]
+        )
+        expected_arcs = torch.IntTensor(
+            [
+                [0, 1, 1],
+                [0, 3, 3],
+                [0, 7, 0],
+                [1, 3, 2],
+                [2, 3, 10],
+                [3, 4, 5],
+                [3, 7, 0],
+                [4, 5, 6],
+                [5, 6, 7],
+                [6, 3, 8],
+                [6, 9, -1],
+                [7, 2, 9],
+                [8, 9, -1],
+            ]
+        )
         self.assertTrue(torch.equal(fsa_out.indexes, expected_arc_indexes))
         self.assertTrue(torch.equal(fsa_out.data, expected_arcs))
         expected_label_indexes = torch.IntTensor(
-            [0, 0, 0, 1, 2, 3, 3, 4, 4, 5, 6, 7, 7, 8])
+            [0, 0, 0, 1, 2, 3, 3, 4, 4, 5, 6, 7, 7, 8]
+        )
         expected_labels = torch.IntTensor([2, 1, 6, 4, 3, 5, -1, -1])
-        self.assertTrue(torch.equal(labels_out.indexes,
-                                    expected_label_indexes))
+        self.assertTrue(torch.equal(labels_out.indexes, expected_label_indexes))
         self.assertTrue(torch.equal(labels_out.data, expected_labels))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

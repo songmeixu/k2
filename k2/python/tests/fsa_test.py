@@ -17,7 +17,6 @@ import k2
 
 
 class TestFsa(unittest.TestCase):
-
     def test_arc(self):
         # construct arc
         arc = k2.Arc(1, 2, 3)
@@ -39,14 +38,14 @@ class TestFsa(unittest.TestCase):
         self.assertTrue(torch.equal(arc_tensor, arc_tensor_target))
 
     def test_fsa(self):
-        s = r'''
+        s = r"""
         0 1 1
         0 2 2
         1 3 3
         2 3 3
         3 4 -1
         4
-        '''
+        """
 
         fsa = k2.str_to_fsa(s)
         self.assertEqual(fsa.num_states(), 5)
@@ -62,5 +61,5 @@ class TestFsa(unittest.TestCase):
         self.assertEqual(fsa.get_data(0).src_state, 5)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

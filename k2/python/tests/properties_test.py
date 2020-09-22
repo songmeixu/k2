@@ -17,7 +17,6 @@ import k2
 
 
 class TestIsValid(unittest.TestCase):
-
     def test_bad_case1(self):
         # fsa should contain at least two states
         array_size = k2.IntArray2Size(1, 0)
@@ -26,12 +25,12 @@ class TestIsValid(unittest.TestCase):
 
     def test_bad_case2(self):
         # only kFinalSymbol arcs enter the final state
-        s = r'''
+        s = r"""
         0 1 0
         0 2 1
         1 2 0
         2
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         self.assertFalse(k2.is_valid(fsa))
 
@@ -49,35 +48,34 @@ class TestIsValid(unittest.TestCase):
         self.assertTrue(k2.is_valid(fsa))
 
     def test_good_case2(self):
-        s = r'''
+        s = r"""
         0 1 0
         0 2 0
         2 3 -1
         3
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         self.assertTrue(k2.is_valid(fsa))
 
     def test_good_case3(self):
-        s = r'''
+        s = r"""
         0 1 0
         0 2 -1
         1 2 -1
         2
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         self.assertTrue(k2.is_valid(fsa))
 
 
 class TestIsTopSorted(unittest.TestCase):
-
     def test_bad_cases1(self):
-        s = r'''
+        s = r"""
         0 1 0
         0 2 0
         2 1 0
         2
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         self.assertFalse(k2.is_top_sorted(fsa))
 
@@ -88,36 +86,35 @@ class TestIsTopSorted(unittest.TestCase):
         self.assertTrue(k2.is_top_sorted(fsa))
 
     def test_good_case2(self):
-        s = r'''
+        s = r"""
         0 1 0
         0 2 0
         1 2 0
         3
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         self.assertTrue(k2.is_top_sorted(fsa))
 
 
 class TestIsArcSorted(unittest.TestCase):
-
     def test_bad_cases1(self):
-        s = r'''
+        s = r"""
         0 1 1
         0 2 2
         1 2 2
         1 3 1
         3
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         self.assertFalse(k2.is_arc_sorted(fsa))
 
     def test_bad_cases2(self):
         # same label on two arcs
-        s = r'''
+        s = r"""
         0 2 0
         0 1 0
         2
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         self.assertFalse(k2.is_arc_sorted(fsa))
 
@@ -128,26 +125,25 @@ class TestIsArcSorted(unittest.TestCase):
         self.assertTrue(k2.is_arc_sorted(fsa))
 
     def test_good_case2(self):
-        s = r'''
+        s = r"""
         0 1 0
         0 2 0
         1 2 1
         1 3 2
         3
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         self.assertTrue(k2.is_arc_sorted(fsa))
 
 
 class TestHasSelfLoops(unittest.TestCase):
-
     def test_bad_cases1(self):
-        s = r'''
+        s = r"""
         0 1 0
         0 2 0
         1 2 0
         2
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         self.assertFalse(k2.has_self_loops(fsa))
 
@@ -158,25 +154,24 @@ class TestHasSelfLoops(unittest.TestCase):
         self.assertFalse(k2.has_self_loops(fsa))
 
     def test_good_case2(self):
-        s = r'''
+        s = r"""
         0 1 0
         1 2 0
         1 1 0
         2
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         self.assertTrue(k2.has_self_loops(fsa))
 
 
 class TestIsDeterministic(unittest.TestCase):
-
     def test_bad_cases1(self):
-        s = r'''
+        s = r"""
         0 1 2
         1 2 0
         1 3 0
         3
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         self.assertFalse(k2.is_deterministic(fsa))
 
@@ -187,25 +182,24 @@ class TestIsDeterministic(unittest.TestCase):
         self.assertTrue(k2.is_deterministic(fsa))
 
     def test_good_case2(self):
-        s = r'''
+        s = r"""
         0 1 2
         1 2 0
         1 3 2
         3
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         self.assertTrue(k2.is_deterministic(fsa))
 
 
 class TestIsEpsilonFree(unittest.TestCase):
-
     def test_bad_cases1(self):
-        s = r'''
+        s = r"""
         0 1 2
         0 2 0
         1 2 1
         2
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         self.assertFalse(k2.is_epsilon_free(fsa))
 
@@ -216,32 +210,31 @@ class TestIsEpsilonFree(unittest.TestCase):
         self.assertTrue(k2.is_epsilon_free(fsa))
 
     def test_good_case2(self):
-        s = r'''
+        s = r"""
         0 1 2
         0 2 1
         1 2 1
         2
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         self.assertTrue(k2.is_epsilon_free(fsa))
 
 
 class TestIsConnected(unittest.TestCase):
-
     def test_bad_cases1(self):
-        s = r'''
+        s = r"""
         0 2 0
         2
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         self.assertFalse(k2.is_connected(fsa))
 
     def test_bad_cases2(self):
-        s = r'''
+        s = r"""
         0 1 0
         0 2 0
         2
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         self.assertFalse(k2.is_connected(fsa))
 
@@ -252,18 +245,18 @@ class TestIsConnected(unittest.TestCase):
         self.assertTrue(k2.is_connected(fsa))
 
     def test_good_case2(self):
-        s = r'''
+        s = r"""
         0 1 0
         0 3 0
         1 2 0
         2 3 0
         3
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         self.assertTrue(k2.is_connected(fsa))
 
     def test_good_case3(self):
-        s = r'''
+        s = r"""
         0 3 0
         1 2 0
         2 3 0
@@ -271,15 +264,14 @@ class TestIsConnected(unittest.TestCase):
         2 4 0
         3 1 0
         4
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         self.assertTrue(k2.is_connected(fsa))
 
 
 class TestIsAcyclic(unittest.TestCase):
-
     def test_bad_cases1(self):
-        s = r'''
+        s = r"""
         0 1 2
         0 4 0
         0 2 0
@@ -287,7 +279,7 @@ class TestIsAcyclic(unittest.TestCase):
         1 3 0
         2 1 0
         3
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         self.assertFalse(k2.is_acyclic(fsa))
 
@@ -298,33 +290,32 @@ class TestIsAcyclic(unittest.TestCase):
         self.assertTrue(k2.is_acyclic(fsa))
 
     def test_good_case2(self):
-        s = r'''
+        s = r"""
         0 1 2
         0 2 1
         1 2 0
         1 3 5
         2 3 6
         3
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         self.assertTrue(k2.is_acyclic(fsa))
 
 
 class TestIsEmpty(unittest.TestCase):
-
     def test_good_cases1(self):
         array_size = k2.IntArray2Size(0, 0)
         fsa = k2.Fsa.create_fsa_with_size(array_size)
         self.assertTrue(k2.is_empty(fsa))
 
     def test_bad_case1(self):
-        s = r'''
+        s = r"""
         0 1 2
         1
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         self.assertFalse(k2.is_empty(fsa))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

@@ -11,7 +11,7 @@ from .fsa import Fsa
 
 
 def str_to_fsa(s: str) -> Fsa:
-    '''Create an FSA from a string.
+    """Create an FSA from a string.
 
     The input string `s` consists of several lines; every line except the
     last line has the following format:
@@ -26,11 +26,10 @@ def str_to_fsa(s: str) -> Fsa:
         s (str): a string representation of the fsa
     Returns:
         k2.Fsa
-    '''
-    rule_pattern = re.compile(
-        r'^[ \t]*(\d+)[ \t]+(\d+)[ \t]+([-]?\d+)[ \t]*$$')
-    final_state_pattern = re.compile(r'^[ \t]*(\d+)[ \t]*$')
-    rules = s.strip().split('\n')
+    """
+    rule_pattern = re.compile(r"^[ \t]*(\d+)[ \t]+(\d+)[ \t]+([-]?\d+)[ \t]*$$")
+    final_state_pattern = re.compile(r"^[ \t]*(\d+)[ \t]*$")
+    rules = s.strip().split("\n")
 
     final_state = None
     state_to_rules = defaultdict(list)

@@ -5,10 +5,10 @@
 import torch
 from torch.utils.dlpack import to_dlpack
 
-from _k2 import IntArray2Size
-from _k2 import _AuxLabels1Mapper
-from _k2 import _AuxLabels2Mapper
-from _k2 import _FstInverter
+from k2._k2 import IntArray2Size
+from k2._k2 import _AuxLabels1Mapper
+from k2._k2 import _AuxLabels2Mapper
+from k2._k2 import _FstInverter
 
 from .fsa import Fsa
 from .array import IntArray1
@@ -18,7 +18,6 @@ AuxLabels = IntArray2
 
 
 class AuxLabels1Mapper(_AuxLabels1Mapper):
-
     def __init__(self, labels_in: AuxLabels, arc_map: IntArray1):
         super().__init__(labels_in.get_base(), arc_map.get_base())
 
@@ -30,7 +29,6 @@ class AuxLabels1Mapper(_AuxLabels1Mapper):
 
 
 class AuxLabels2Mapper(_AuxLabels2Mapper):
-
     def __init__(self, labels_in: AuxLabels, arc_map: IntArray2):
         super().__init__(labels_in.get_base(), arc_map.get_base())
 
@@ -42,12 +40,12 @@ class AuxLabels2Mapper(_AuxLabels2Mapper):
 
 
 class FstInverter(_FstInverter):
-
     def __init__(self, fsa_in: Fsa, labels_in: AuxLabels):
         super().__init__(fsa_in.get_base(), labels_in.get_base())
 
-    def get_sizes(self, fsa_size: IntArray2Size,
-                  aux_size: IntArray2Size) -> None:
+    def get_sizes(
+        self, fsa_size: IntArray2Size, aux_size: IntArray2Size
+    ) -> None:
         return super().get_sizes(fsa_size, aux_size)
 
     def get_output(self, fsa_out: Fsa, labels_out: AuxLabels) -> None:

@@ -17,11 +17,10 @@ import k2
 
 
 class TestConnection(unittest.TestCase):
-
     def test_case_1(self):
         # a non-connected, non-topsorted, acyclic input fsa;
         # the output fsa is topsorted.
-        s = r'''
+        s = r"""
         0 1 1
         0 2 2
         1 3 3
@@ -31,7 +30,7 @@ class TestConnection(unittest.TestCase):
         2 1 1
         5 0 1
         6
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         connection = k2.Connection(fsa)
         array_size = k2.IntArray2Size()
@@ -41,8 +40,9 @@ class TestConnection(unittest.TestCase):
         status = connection.get_output(fsa_out, arc_map)
         self.assertTrue(status)
         expected_arc_indexes = torch.IntTensor([0, 2, 4, 5, 5])
-        expected_arcs = torch.IntTensor([[0, 2, 1], [0, 1, 2], [1, 3, -1],
-                                         [1, 2, 1], [2, 3, -1]])
+        expected_arcs = torch.IntTensor(
+            [[0, 2, 1], [0, 1, 2], [1, 3, -1], [1, 2, 1], [2, 3, -1]]
+        )
         expected_arc_map = torch.IntTensor([0, 1, 5, 6, 3])
         self.assertTrue(torch.equal(fsa_out.indexes, expected_arc_indexes))
         self.assertTrue(torch.equal(fsa_out.data, expected_arcs))
@@ -52,7 +52,7 @@ class TestConnection(unittest.TestCase):
         # a cyclic input fsa
         # after trimming, the cycle is removed;
         # so the output fsa should be topsorted.
-        s = r'''
+        s = r"""
         0 1 1
         0 2 2
         1 3 3
@@ -63,7 +63,7 @@ class TestConnection(unittest.TestCase):
         5 0 1
         5 7 -1
         7
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         connection = k2.Connection(fsa)
         array_size = k2.IntArray2Size()
@@ -78,7 +78,7 @@ class TestConnection(unittest.TestCase):
     def test_case_3(self):
         # a non-connected, non-topsorted, acyclic input fsa;
         # the output fsa is topsorted.
-        s = r'''
+        s = r"""
         0 3 3
         0 5 5
         1 2 2
@@ -91,7 +91,7 @@ class TestConnection(unittest.TestCase):
         4 6 -1
         5 6 -1
         6
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         connection = k2.Connection(fsa)
         array_size = k2.IntArray2Size()
@@ -104,7 +104,7 @@ class TestConnection(unittest.TestCase):
         # a cyclic input fsa
         # after trimming, the cycle remains (it is not a self-loop);
         # so the output fsa is NOT topsorted.
-        s = r'''
+        s = r"""
         0 3 3
         0 2 2
         1 0 1
@@ -116,7 +116,7 @@ class TestConnection(unittest.TestCase):
         5 3 3
         5 4 4
         6
-        '''
+        """
         fsa = k2.str_to_fsa(s)
         connection = k2.Connection(fsa)
         array_size = k2.IntArray2Size()
@@ -127,5 +127,5 @@ class TestConnection(unittest.TestCase):
         self.assertFalse(k2.is_top_sorted(fsa_out))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

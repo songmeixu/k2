@@ -12,7 +12,7 @@ add_library(context STATIC
 #    compose.cu
     context.cu
     dtype.cu
-    fsa.cu
+#    fsa.cu
 #    fsa_algo.cu
     math.cu
     ragged.cu
