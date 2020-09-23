@@ -108,6 +108,47 @@ general and extensible framework to allow further development of ASR technology.
  collection of linear sequences and back again (for purposes of neural language
  model rescoring, neural confidence estimation and the like).
 
+## install
+```bash
+pip install k2
+```
+
+## Build from source
+- Prerequisites
+    - python >= 3.7 (Hint: Manage multiple py versions is very handy through
+     [pyenv](https://github.com/pyenv/pyenv#basic-github-checkout))
+
+```bash
+#----------- Prepare developement environment -----------
+git clone https://github.com/k2-fsa/k2.git
+cd k2
+# init vcpkg (https://github.com/microsoft/vcpkg) as the c++ package manager
+git submodule update --init --recursive
+# prepare vcpkg
+./vcpkg/bootstrap-vcpkg.sh
+# install c++ dependencies of k2
+./vcpkg/vcpkg install gtest cub
+# install poetry as the python package manager
+curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/get-poetry.py | python
+# create a python virtual env and install the python dependencies of k2 
+# (through pyproject.toml)
+poetry config --local virtualenvs.in-project true
+poetry install --no-root
+# activate the poetry venv
+poetry shell
+
+#----------- Build with cmake -----------
+# build with cmake
+mkdir build && cd build
+cmake ..
+make
+
+#----------- Or build and get a python package with poetry -----------
+poetry build
+
+#----------- Only for maintainer: upload to pypi -----------
+poetry publish
+```
 
 ## Quick start
 
