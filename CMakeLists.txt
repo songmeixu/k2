@@ -118,6 +118,12 @@ endif()
 
 enable_testing()
 
+# Find python
+set(Python3_FIND_VIRTUALENV FIRST)
+find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+set(PYTHON_EXECUTABLE ${Python3_EXECUTABLE})
+message(STATUS "Set PYTHON_EXECUTABLE = ${Python3_EXECUTABLE}")
+
 # Find c++ deps
 if(USE_PYTORCH)
   add_definitions(-DK2_USE_PYTORCH)
