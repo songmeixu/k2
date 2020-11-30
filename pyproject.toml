@@ -8,7 +8,7 @@ authors = [
     "Haowen Qiu",
     "Meixu Song",
 ]
-readme = "README.md"
+readme = "docs/README.md"
 homepage = "https://github.com/open-speech/sequeender"
 repository = "https://github.com/open-speech/sequeender"
 documentation = "https://github.com/open-speech/sequeender"

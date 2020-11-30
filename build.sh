@@ -25,7 +25,7 @@ set -e
 
 # Install deps.
 if [ $stage -le 1 ]; then
-  # pyenv is good at effective python version control.
+  # pyenv is good at maintain python versions.
   {
     if ! [ -x "$(command -v pyenv)" ]; then
       echo 'Warn [pyenv]: pyenv is not installed. Installing it ...' >&2
@@ -34,12 +34,14 @@ if [ $stage -le 1 ]; then
       exec "$SHELL"
     fi
 
-    echo 'Info [pyenv]: Try to install py-3.8 by pyenv ...'
-    pyenv update
-    pyenv install 3.8.6
+    if ! [ -d "$(pyenv root)/versions/3.8.6" ]; then
+      echo 'Info [pyenv]: Try to install py-3.8 by pyenv ...'
+      pyenv install 3.8.6
+    fi
 
     echo 'Info [pyenv]: Set py-3.8 as the default python for this project'
     pyenv local 3.8.6
+    poetry shell  # make changes work for current shell session
   }
 
   # poetry is good at maintain python dependencies.
@@ -80,7 +82,7 @@ if [ $stage -le 2 ]; then
   
   # call build by conan
   {
-    conan build
+    conan build ..
   }
 
   # or by cmake:
