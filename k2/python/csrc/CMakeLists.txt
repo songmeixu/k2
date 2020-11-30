@@ -19,7 +19,7 @@ endif()
 
 pybind11_add_module(_k2 ${k2_srcs})
 target_link_libraries(_k2 PRIVATE ${k2_deps})
-target_link_libraries(_k2 PRIVATE context)
+target_link_libraries(_k2 PRIVATE k2_context)
 target_link_libraries(_k2 PRIVATE fsa)
 target_include_directories(_k2 PRIVATE ${CMAKE_SOURCE_DIR})
 target_include_directories(_k2 PRIVATE ${CMAKE_BINARY_DIR})

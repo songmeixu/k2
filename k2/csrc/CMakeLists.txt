@@ -52,21 +52,20 @@ else()
 endif()
 
 # the target
-add_library(context SHARED ${context_srcs})
-set_target_properties(context PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
-set_target_properties(context PROPERTIES OUTPUT_NAME "k2context")
+add_library(k2_context SHARED ${context_srcs})
+set_target_properties(k2_context PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
 # lib deps
-target_link_libraries(context PUBLIC fsa k2_log k2_nvtx cub::cub moderngpu::moderngpu)
+target_link_libraries(k2_context PUBLIC fsa k2_log k2_nvtx cub::cub moderngpu::moderngpu)
 if(USE_PYTORCH)
-  target_link_libraries(context PUBLIC ${TORCH_LIBRARIES})
+  target_link_libraries(k2_context PUBLIC ${TORCH_LIBRARIES})
 endif()
 
 #---------------------------- Test K2 CUDA sources ----------------------------
 
 add_library(test_utils SHARED test_utils.cu)
 target_link_libraries(test_utils PUBLIC
-    context
+    k2_context
     GTest::gtest)
 
 # please sort the source files alphabetically
@@ -97,7 +96,7 @@ function(k2_add_cuda_test name)
   set_target_properties(${target_name} PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
   target_link_libraries(${target_name}
     PRIVATE
-    context
+    k2_context
     fsa  # for code in k2/csrc/host
     GTest::gtest
     GTest::gtest_main

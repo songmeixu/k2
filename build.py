@@ -11,8 +11,8 @@ postfix = f"{get_platform()}-{sys.version_info.major}.{sys.version_info.minor}"
 lib_dir = os.path.join("build", f"lib.{postfix}", "k2")
 
 ext_modules = [
-    # CMake build libraries (targret: context, its output lib: libk2context.so)
-    CMakeExtension("k2.context", sourcedir="."),
+    # CMake build libraries (targret: k2_context)
+    CMakeExtension("k2.k2_context", sourcedir="."),
     # call c++ with pybind11 headers and libs
     # to build a python pybind11 library (pybind11_extension)
     Pybind11Extension(
@@ -20,7 +20,7 @@ ext_modules = [
         sources=pybind11_csrc,
         include_dirs=["."],
         library_dirs=[lib_dir],
-        libraries=["fsa", "k2context"],
+        libraries=["fsa", "k2_context"],
         runtime_library_dirs=["$ORIGIN", "."],
     ),
 ]
