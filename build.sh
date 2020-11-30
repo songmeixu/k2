@@ -31,8 +31,8 @@ if [ $stage -le 1 ]; then
       echo 'Warn [pyenv]: pyenv is not installed. Installing it ...' >&2
       
       curl https://pyenv.run | bash
-      exec $SHELL
-    if
+      exec "$SHELL"
+    fi
 
     echo 'Info [pyenv]: Try to install py-3.8 by pyenv ...'
     pyenv update
@@ -50,8 +50,8 @@ if [ $stage -le 1 ]; then
           get-poetry.py" | python
     fi
 
-    echo 'Info [poetry]: Installing python pkgs into a local virtual env \
-        created by poetry ...'
+    echo 'Info [poetry]: Installing python pkgs into a local virtual env' \
+        'created by poetry ...'
     poetry config --local virtualenvs.in-project true
     poetry install --no-root
   }
@@ -66,9 +66,6 @@ if [ $stage -le 1 ]; then
     echo 'Info [conan]: add remotes to conan ...'
     conan config install cfg/remotes.txt
   }
-fi
-
-  
 fi
 
 # c++ build
@@ -90,6 +87,7 @@ if [ $stage -le 2 ]; then
   {
     # cmake -DCMAKE_BUILD_TYPE=${build_type} ..
     # make -j 4
+    true
   }
 
   cd ..
