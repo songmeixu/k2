@@ -17,10 +17,10 @@ _sys.path.append(__path__)
 
 
 # ---------------------- Absolute import  ----------------------
-from k2._k2 import IntArray2Size
-from k2._k2 import FbWeightType
+from k2._k2host import IntArray2Size
+from k2._k2host import FbWeightType
 
-from k2.python import k2
+from k2 import python
 
 # ---------------------- Setting __all__  ----------------------
 

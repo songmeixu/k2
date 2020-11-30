@@ -1,5 +1,4 @@
-from k2.python.k2.ragged import ops
-
-from k2.python.k2.ragged.ops import (index,)
+from . import ops
+from .ops import (index,)
 
 __all__ = ['index', 'ops']

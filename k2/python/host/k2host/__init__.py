@@ -1,35 +1,35 @@
-from k2.python.host.k2host import array
-from k2.python.host.k2host import aux_labels
-from k2.python.host.k2host import fsa
-from k2.python.host.k2host import fsa_algo
-from k2.python.host.k2host import fsa_equivalent
-from k2.python.host.k2host import fsa_util
-from k2.python.host.k2host import properties
-from k2.python.host.k2host import weights
+from .import array
+from .import aux_labels
+from .import fsa
+from .import fsa_algo
+from .import fsa_equivalent
+from .import fsa_util
+from .import properties
+from .import weights
 
-from k2.python.host.k2host.array import (DoubleArray1, FloatArray1, IntArray1,
+from .array import (DoubleArray1, FloatArray1, IntArray1,
                                          IntArray2, LogSumArcDerivs,
                                          StridedIntArray1,)
-from k2.python.host.k2host.aux_labels import (AuxLabels, AuxLabels1Mapper,
+from .aux_labels import (AuxLabels, AuxLabels1Mapper,
                                               AuxLabels2Mapper, FstInverter,)
-from k2.python.host.k2host.fsa import (Arc, Fsa,)
-from k2.python.host.k2host.fsa_algo import (ArcSorter, Connection,
+from .fsa import (Arc, Fsa,)
+from .fsa_algo import (ArcSorter, Connection,
                                             DeterminizerLogSum,
                                             DeterminizerMax,
                                             EpsilonsRemoverLogSum,
                                             EpsilonsRemoverMax, Intersection,
                                             TopSorter, arc_sort,)
-from k2.python.host.k2host.fsa_equivalent import (RandPath, is_rand_equivalent,
+from .fsa_equivalent import (RandPath, is_rand_equivalent,
                                                   is_rand_equivalent_after_rmeps_pruned_logsum,
                                                   is_rand_equivalent_logsum_weight,
                                                   is_rand_equivalent_max_weight,)
-from k2.python.host.k2host.fsa_util import (float_to_int, str_to_fsa,)
-from k2.python.host.k2host.properties import (has_self_loops, is_acyclic,
+from .fsa_util import (float_to_int, str_to_fsa,)
+from .properties import (has_self_loops, is_acyclic,
                                               is_arc_sorted, is_connected,
                                               is_deterministic, is_empty,
                                               is_epsilon_free, is_top_sorted,
                                               is_valid,)
-from k2.python.host.k2host.weights import (WfsaWithFbWeights,)
+from .weights import (WfsaWithFbWeights,)
 
 __all__ = ['Arc', 'ArcSorter', 'AuxLabels', 'AuxLabels1Mapper',
            'AuxLabels2Mapper', 'Connection', 'DeterminizerLogSum',
