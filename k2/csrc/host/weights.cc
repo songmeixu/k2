@@ -1,11 +1,6 @@
 /**
- * @brief
- * weights
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Haowen Qiu)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -18,11 +13,14 @@
 #include "k2/csrc/host/fsa.h"
 #include "k2/csrc/host/properties.h"
 #include "k2/csrc/host/util.h"
+#include "k2/csrc/macros.h"
+#include "k2/csrc/nvtx.h"
 
 namespace k2host {
 
 void ComputeForwardMaxWeights(const Fsa &fsa, double *state_weights,
                               std::vector<int32_t> *arc_indexes /*= nullptr*/) {
+  NVTX_RANGE(K2_FUNC);
   if (IsEmpty(fsa)) return;
   K2_DCHECK(IsValid(fsa));  // TODO(dan): make this run only in paranoid mode.
   K2_CHECK_NE(state_weights, nullptr);
@@ -63,6 +61,7 @@ void ComputeForwardMaxWeights(const Fsa &fsa, double *state_weights,
 }
 
 void ComputeBackwardMaxWeights(const Fsa &fsa, double *state_weights) {
+  NVTX_RANGE(K2_FUNC);
   if (IsEmpty(fsa)) return;
   K2_CHECK_NE(state_weights, nullptr);
 
@@ -81,6 +80,7 @@ void ComputeBackwardMaxWeights(const Fsa &fsa, double *state_weights) {
 }
 
 void ComputeForwardLogSumWeights(const Fsa &fsa, double *state_weights) {
+  NVTX_RANGE(K2_FUNC);
   if (IsEmpty(fsa)) return;
   K2_DCHECK(IsValid(fsa));  // TODO(dan): make this run only in paranoid mode.
   K2_CHECK_NE(state_weights, nullptr);
@@ -100,6 +100,7 @@ void ComputeForwardLogSumWeights(const Fsa &fsa, double *state_weights) {
 }
 
 void ComputeBackwardLogSumWeights(const Fsa &fsa, double *state_weights) {
+  NVTX_RANGE(K2_FUNC);
   if (IsEmpty(fsa)) return;
   K2_DCHECK(IsValid(fsa));  // TODO(dan): make this run only in paranoid mode.
   K2_CHECK_NE(state_weights, nullptr);
@@ -135,6 +136,7 @@ WfsaWithFbWeights::WfsaWithFbWeights(const Fsa &fsa, FbWeightType t,
 // problems, Journal of Automata, Languages and Combinatorics 7(3): 321-350,
 // 2002.
 void WfsaWithFbWeights::ComputeForwardWeights() {
+  NVTX_RANGE(K2_FUNC);
   auto num_states = fsa.NumStates();
   std::fill_n(forward_state_weights, num_states, kDoubleNegativeInfinity);
 
@@ -166,6 +168,7 @@ void WfsaWithFbWeights::ComputeForwardWeights() {
 }
 
 void WfsaWithFbWeights::ComputeBackardWeights() {
+  NVTX_RANGE(K2_FUNC);
   auto num_states = fsa.NumStates();
   std::fill_n(backward_state_weights, num_states, kDoubleNegativeInfinity);
 

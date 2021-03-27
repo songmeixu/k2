@@ -1,14 +1,8 @@
 /**
- * @brief Utilities for creating FSAs.
- *
- * Note that serializations are done in Python.
- *
- * @copyright
  * Copyright (c)  2020  Mobvoi Inc.        (authors: Fangjun Kuang)
  *                      Guoguo Chen
  *                      Xiaomi Corporation (authors: Daniel Povey, Haowen Qiu)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -25,51 +19,57 @@ namespace k2 {
 /*
   Create an Fsa from string.
 
-  The string `s` consists of lines. Every line, except the line for
-  the final state, has one of the following two formats:
+  The string `s` consists of lines describing arcs or final-states.
+  Arcs are represented as:
 
   (1)
-      src_state dest_state label cost
-  which means the string represents an acceptor.
+      src_state dest_state label [aux_label1 aux_label2...] [cost/score]
 
-  (2)
-      src_state dest_state label aux_label cost
-  which indicates the string is a transducer.
-
+  (the OpenFst format has costs, the k2 format has scores, which are of
+  opposite signs).
   The line for the final state has the following format when `openfst` is false:
 
       final_state
 
   This is because final state in k2 does not bear a cost. Instead, we put the
   cost on the arc that connects to the final state, and set its label to -1.
-  When `openfst` is true, we expect the more generic OpenFst sytle final state
+  When `openfst` is true, we expect the more generic OpenFst style final state
   format :
 
-      final_state cost
+      final_state [cost]
 
-  And we allow more than one final states when `openfst` is true.
+  And we allow more than one final state when `openfst` is true.
+  Also, in the k2 format we expect arcs to be sorted on src_state, but in
+  the OpenFst format they can appear in arbitrary order, with the
+  src_state or final_state on the first arc indicating the start-state.
 
-  Note that fields are separated by spaces and tabs. There can exist
-  multiple tabs and spaces.
+  Note that fields are separated by whitespace.
 
-  CAUTION: The first column has to be in non-decreasing order.
+  CAUTION: The first column has to be in non-decreasing order
+  if `openfst==false`.
 
   @param [in]   s   The input string. See the above description for its format.
   @param [in]   openfst
-                    If true, the string form has the weights as costs, not
-                    scores, so we negate them as we read. We will also allow
-                    multiple final states with weights associated with them.
+                    If true, read the OpenFst format. The string form has the
+                    weights as costs, not scores, so we negate them as we read.
+                    We will also allow multiple final states with weights
+                    associated with them.
+  @param [in]  num_aux_labels  The number of auxiliary labels to expect on
+                    each line.  In OpenFST terminology, 0 would be an acceptor
+                    and 1 would be a transducer
   @param [out]  aux_labels
-                    If NULL, we treat the input as an acceptor; otherwise we
-                    treat the input as an transducer, and store the
-                    corresponding output labels to it. It is allocated inside
-                    the function and will contain aux_label of each arc.
-                    Note that it is allocated on CPU if needed.
+                    This is ignored if num_aux_labels == 0.
+                    If num_aux_labels > 0, this will be set to an
+                    Array2 (on CPU) of shape (num_aux_labels, num_arcs).
+                    Note: on final-arcs (which are not explicitly represented in
+                    the OpenFst format), the value of the aux_labels will be -1.
 
   @return It returns an Fsa on CPU.
  */
-Fsa FsaFromString(const std::string &s, bool openfst = false,
-                  Array1<int32_t> *aux_labels = nullptr);
+Fsa FsaFromString(const std::string &s,
+                  bool openfst = false,
+                  int32_t num_aux_labels = 0,
+                  Array2<int32_t> *aux_labels = nullptr);
 
 /* Convert an FSA to a string.
 
@@ -79,7 +79,7 @@ Fsa FsaFromString(const std::string &s, bool openfst = false,
       src_state dest_state label score
 
    If the FSA is a transducer, i.e., aux_labels != nullptr, every arc
-   is converted to a lien with the following form:
+   is converted to a line with the following form:
 
       src_state dest_state label aux_label score
 
@@ -198,6 +198,14 @@ Ragged<int32_t> GetIncomingArcs(FsaVec &fsas,
                                 const Array1<int32_t> &dest_states);
 
 /*
+  Rearrange an FsaVec into a different arrangement of arcs which will actually
+  not be a valid FsaVec but will contain the same information in a different
+  form.. the arcs are rearranged so they are listed by the dest_state, not
+  src_state.  Implementation is 2 lines, using GetIncomingArcs().
+ */
+FsaVec GetIncomingFsaVec(FsaVec &fsas);
+
+/*
    Compute and return forward scores per state (like alphas in Baum-Welch),
    or forward best-path scores if log_semiring == false.
 
@@ -224,12 +232,45 @@ Ragged<int32_t> GetIncomingArcs(FsaVec &fsas,
       @return   Returns vector indexed by state-index (idx01 into fsas), i.e.
                `ans.Dim()==fsas.TotSize(1)`, containing forward scores.
                 (these will be zero for the start-states).
+
+    CAUTION: there is another version of GetForwardScores() for CPU only,
+    declared in host_shim.h.
 */
 template <typename FloatType>
 Array1<FloatType> GetForwardScores(FsaVec &fsas, Ragged<int32_t> &state_batches,
                                    Ragged<int32_t> &entering_arc_batches,
                                    bool log_semiring,
                                    Array1<int32_t> *entering_arcs = nullptr);
+
+/*
+  Does the back-propagation for GetForwardScores().
+     @param [in] fsas           Same object given to GetForwardScores()
+     @param [in] state_batches   Same object given to GetForwardScores()
+     @param [in] leaving_arc_batches  Arc-indexes (idx012's in fsas) of arcs
+                leaving states in `state_batches`, indexed
+                [iter][fsa][state_list][arc_list], as returned by
+                GetLeavingArcIndexBatches().  CAUTION: not the same
+                as entering_arc_batches as used in GetForwardScores().
+     @param [in] log_semiring    Same option as given to GetForwardScores()
+     @param [in] entering_arcs   Only if log_semiring is false, we require this
+                                 to be supplied (i.e. not nullptr).  It must be
+                                 the array that was output by
+                                 GetForwardScores().
+     @param [in] forward_scores  The return value of GetForwardScores().
+     @param [in] forward_scores_deriv  The derivative of the loss function
+                                 w.r.t. `forward_scores` (i.e. the return
+                                 value of GetForwardScores()).
+     @return  Returns the derivative of the loss function w.r.t. the scores
+                               of the `fsas` argument to GetForwardScores().
+ */
+template <typename FloatType>
+Array1<FloatType> BackpropGetForwardScores(
+    FsaVec &fsas, Ragged<int32_t> &state_batches,
+    Ragged<int32_t> &leaving_arc_batches,
+    bool log_semiring,
+    const Array1<int32_t> *entering_arcs,
+    const Array1<FloatType> &forward_scores,
+    const Array1<FloatType> &forward_scores_deriv);
 
 /*
   Return array of total scores (one per FSA), e.g. could be interpreted as
@@ -254,36 +295,60 @@ Array1<FloatType> GetTotScores(FsaVec &fsas,
                  property kFsaPropertiesTopSortedAndAcyclic if you were
                  to compute properties.
        @param [in] state_batches  Batches of states, as returned by
-                  GetBatches (must have 3 axes: [iter][fsa][state_list]).
+                   GetStateBatches(fsas, true) (must have 3 axes:
+                   [iter][fsa][state_list]).
        @param [in] leaving_arc_batches  Arcs-indexes (idx012's in fsas) of arcs
                  leaving states in `state_batches`, indexed
                  [iter][fsa][state_list][arc_list], as returned by
                  GetLeavingArcIndexBatches().
-       @param [in] tot_scores  If provided, we'll treat the backward
-                  scores of final-states as the negative of these
-                  tot_scores (which must have
-                  `tot_scores->Dim() == fsas.Dim0())`; otherwise
-                  as zero.
        @param [in] log_semiring  If true, use LogAdd to combine
-                  scores; if false, use max.
+                 scores; if false, use max.
        @return  Returns a vector indexed by state-index (idx01 in fsas), with
-               `ans.Dim() == fsas.TotSize(1)`, containing backward
-               scores.
+                `ans.Dim() == fsas.TotSize(1)`, containing backward
+                scores.
+
+     CAUTION: there is another version of GetBackwardScores() for CPU only,
+     declared in host_shim.h.
  */
 template <typename FloatType>
-Array1<FloatType> GetBackwardScores(
-    FsaVec &fsas, Ragged<int32_t> &state_batches,
-    Ragged<int32_t> &leaving_arc_batches,
-    const Array1<FloatType> *tot_scores = nullptr, bool log_semiring = true);
+Array1<FloatType> GetBackwardScores(FsaVec &fsas,
+                                    Ragged<int32_t> &state_batches,
+                                    Ragged<int32_t> &leaving_arc_batches,
+                                    bool log_semiring = true);
 
 /*
-  Compute and return arc-level forward-backward scores, which are:
-   `forward_score[src_state] + arc.score + backward_score[dest_state]`.
+   Back-propagates through GetBackwardScores().
 
-   If you provided the `tot_scores` argument to GetBackwardScores, and if
-   log_semiring == true, then you can think of these as the log probability that
-   you go through that arc, which would be log(1.0) = 0.0 for an FSA with only
-   one path.
+      @param [in] fsas  Input FsaVec, as given to GetBackwardScores()
+      @param [in] state_batches  Batches of states, as given to
+                  GetBackwardScores() and GetForwardScores()
+      @param [in] entering_arc_batches  Arcs-indexes (idx012's in fsas) of arcs
+                 entering states in `state_batches`, indexed
+                 [iter][fsa][state_list][arc_list], as returned by
+                 GetEnteringArcIndexBatches().
+      @param [in] log_semiring  The same option as given to GetBackwardScors()
+      @param [in] backward_scores   The return value of GetBackwardScores()
+      @param [in] backward_scores_deriv  The derivative of the loss function
+                            w.r.t. the return value of `GetBackwardScores()`
+      @return  Returns the derivative of the loss function w.r.t. the scores
+               of the input arg `fsas` to this function.
+ */
+template <typename FloatType>
+Array1<FloatType> BackpropGetBackwardScores(
+    FsaVec &fsas, Ragged<int32_t> &state_batches,
+    Ragged<int32_t> &entering_arc_batches, bool log_semiring,
+    const Array1<FloatType> &backward_scores,
+    const Array1<FloatType> &backward_scores_deriv);
+
+/*
+  Compute and return arc-level posterior scores which are:
+  `forward_score[src_state] + arc.score + backward_score[dest_state] -
+  tot_score[fsa]`, where tot_score[fsa] is computed as the average of the
+  forward score for the final state of that FSA and the backward score of the
+  initial state.
+
+   You can think of the result as the log probability that you go through that
+   arc, which would be log(1.0) = 0.0 for an FSA with only one path.
 
        @param [in] fsas   The FSAs that we want the arc-level probabilities
                          from
@@ -299,9 +364,32 @@ Array1<FloatType> GetBackwardScores(
                   with ans.Dim() == fsas.NumElements().
 */
 template <typename FloatType>
-Array1<FloatType> GetArcScores(FsaVec &fsas,
-                               const Array1<FloatType> &forward_scores,
-                               const Array1<FloatType> &backward_scores);
+Array1<FloatType> GetArcPost(FsaVec &fsas,
+                             const Array1<FloatType> &forward_scores,
+                             const Array1<FloatType> &backward_scores);
+
+/*
+  Does the backprop for GetArcPost(), outputting the deriv of the loss
+  function w.r.t the `forward_scores` and `backward_scores` args to
+  GetArcPost().
+       @param [in] fsas  The FSAs we're getting scores from, the same as the
+                        original arg to GetArcPost().
+       @param [in] incoming_arcs   The result of calling
+                       `GetIncomingArcs(fsas, GetDestStates(fsas, true))`
+       @param [in] arc_post_deriv  The derivative of the loss function
+                       w.r.t. the return value of `GetArcPost()`
+       @param [out] forward_scores_deriv  The derivative of the loss function
+                       w.r.t. the input `forward_scores` to GetArcPost()
+                       will be written to here.
+       @param [out] backward_deriv  The derivative of the loss function
+                       w.r.t. the input `backward_scores` to GetArcPost()
+                      will be written to here.
+ */
+template <typename FloatType>
+void BackpropGetArcPost(FsaVec &fsas, Ragged<int32_t> &incoming_arcs,
+                        const Array1<FloatType> &arc_post_deriv,
+                        Array1<FloatType> *forward_scores_deriv,
+                        Array1<FloatType> *backward_scores_deriv);
 
 /*
   Returns an array of the destination-states for all arcs in an FsaVec
@@ -406,14 +494,153 @@ Ragged<int32_t> GetStartStates(FsaVec &src);
 /* Create a FsaVec from a tensor of best arc indexes returned by `ShortestPath`.
 
    @param [in] fsas   Input FsaVec. It must be the same FsaVec for getting
-                      `best_arc_indexes`.
-   @param [in] best_arc_indexes
-                      It is returned by `ShortestPath`.
+                     `best_arc_indexes`.
+   @param [in] best_arc_index
+                      As returned by `ShortestPath`; has 2 axes, indexed
+                      [fsa_idx][list of arcs]
 
 
    @return returns a linear FsaVec that contains the best path of `fsas`.
  */
 FsaVec FsaVecFromArcIndexes(FsaVec &fsas, Ragged<int32_t> &best_arc_indexes);
+
+/*
+  Compose arc maps from two successive FSA operations which give arc maps as
+  type ragged tensor.
+
+   @param [in] step1_arc_map   Arc map from the first Fsa operation.
+                               Must have NumAxes() == 2.
+   @param [in] step2_arc_map   Arc map from the second Fsa operation.
+                         The elements in it are indexes into `step1_arc_map`,
+                         so we require that
+                         `0 <= step2_arc_map.values[i] < step1_arc_map.Dim0()`
+                         for `0 <= i < step2_arc_map.NumElements()`.
+                         Must have NumAxes() == 2 and have the same device
+                         type as `step1_arc_map`.
+
+   @return Returns the composed arc map. ans.NumAxes() == 2 and ans.Dim0()
+           equals to `step2_arc_map.Dim0()`. Suppose elements in row i of
+           `step2_arc_map` are [2, 3, 7], then the elements in row i of ans
+           will be the concatenation of elements in row 2, 3, 7 of
+           `step1_arc_map`.
+ */
+Ragged<int32_t> ComposeArcMaps(Ragged<int32_t> &step1_arc_map,
+                               Ragged<int32_t> &step2_arc_map);
+
+
+/*
+  Return a ragged array that represents the cumulative distribution function
+  (cdf) of the probability of arcs leaving each state of `fsas`.
+  This is according to the distribution implied by the arc posteriors
+  in `arc_post`.  It's intended so that given a distribution over
+  arc probabilities you can prepare to call RandomPaths() to select
+  arcs according to that probability distribution.
+
+
+    @param [in] fsas Fsa or FsaVec for which we want the cdf.
+    @param [in] arc_post  Arc-level posteriors for this FsaVec, probably
+                   from GetArcPost().  (Probably only makes sense if you had
+                   log_semiring=true when getting the forward and backward
+                   scores, but would still give you something otherwise.)
+
+    @return   Returns an Array<FloatType> with ans.Dim() == fsas.NumElements();
+                  the element corresponding the 1st arc leaving any state
+                  will always be 0.0, and the rest will be non-decreasing,
+                  representing the exclusive-sum of prior members of
+                  `arc_post` leaving that state, all divided by the sum
+                  of `arc_post` leaving that state; you can imagine
+                  that there is an implicit "last element" for each state
+                  that is equal to 1.0.  We are careful to eliminate
+                  roundoff errors of a type that would cause fatal
+                  errors in sampling.
+ */
+template <typename FloatType>
+Array1<FloatType> GetArcCdf(FsaOrVec &fsas,
+                            Array1<FloatType> &arc_post);
+
+/*
+  Return pseudo-randomly chosen paths through acyclic FSAs.  (Actually the paths
+  are deterministic, taken at fixed intervals through a certain cdf).
+
+    @param [in] fsas  An FsaVec (3 axes) that we are sampling from.
+    @param [in] arc_cdf  The result of calling GetArcCdf() with `fsas`.
+    @param [in] num_paths  An array giving the number of paths that is
+                        requested for each Fsa, with num_paths.Dim() ==
+                        fsas.Dim0().  Must be zero for any Fsa that
+                        is equivalent to the empty Fsa (e.g. its
+                        GetTotScores() entry is -infinity).
+   @param [in] state_batches  The result of calling GetStateBatches(fsas, true).
+                        Is needed so we can know the maximum
+                        possible length of each path, to know how much memory to
+                        allocate.
+
+   @return  Returns a ragged tensor with 3 axes: [fsa][path][arc],
+            containing arc-indexes (idx012) into `fsas`,
+             with `ans.Dim0() == fsas.Dim0()`,
+            `ans.TotSize(1) == Sum(num_paths)`.  Each bottom-level
+            sub-list is a list of consecutive arcs from the start-state
+            to the final-state.
+
+  See also the other form of RandomPaths(), which allows you to provide
+  `num_paths` as a scalar.
+ */
+template <typename FloatType>
+Ragged<int32_t> RandomPaths(FsaVec &fsas,
+                            const Array1<FloatType> &arc_cdf,
+                            const Array1<int32_t> &num_paths,
+                            Ragged<int32_t> &state_batches);
+
+
+/*
+  Return pseudo-randomly chosen paths through acyclic FSAs.  (Actually the paths
+  are deterministic, taken at fixed intervals through a certain cdf).
+
+    @param [in] fsas  An FsaVec (3 axes) that we are sampling from.
+    @param [in] arc_cdf  The result of calling GetArcCdf() with `fsas`.
+    @param [in] num_paths  The number of paths requested for those FSAs
+                       that have successful paths through them.  (For other
+                       FSAs, no paths will be returned).
+    @param [in] tot_scores  Total score of each FSA in `fsas`, as returned
+                      by GetTotScores (semiring of forward_scores does not
+                      matter).  Is needed so we can know which FSAs
+                      had successful paths, i.e. had tot_score not equal to
+                      -infinity.
+    @param [in] state_batches  The result of calling GetStateBatches(fsas, true)
+                      on `fsas`.  Is needed so we can know the maximum
+                      possible length of each path, to know how much memory to
+                      allocate.
+
+   @return  Returns a ragged tensor with 3 axes: [fsa][path][arc],
+            containing arc-indexes (idx012) into `fsas`,
+             with `ans.Dim0() == fsas.Dim0()`.  Each bottom-level
+            sub-list is a list of consecutive arcs from the start-state
+            to the final-state.
+
+
+  See also the other form of RandomPaths(), which allows you to provide
+  `num_paths` separately for each Fsa.
+ */
+template <typename FloatType>
+Ragged<int32_t> RandomPaths(FsaVec &fsas,
+                            const Array1<FloatType> &arc_cdf,
+                            int32_t num_paths,
+                            const Array1<FloatType> &tot_scores,
+                            Ragged<int32_t> &state_batches);
+
+
+
+/*
+  This function detects if there are any FSAs in an FsaVec that have exactly one
+  state (which is not allowed; the empty FSA may have either 0 or 2 states); and
+  it removes those states.  These states cannot have any arcs leaving them; if
+  they do, it is an error and this function may crash or give undefined output.
+
+    @param [in,out] fsas  FsaVec to possibly modify; must have 3 axes.
+
+  CAUTION: this is not used right now and I'm not sure if there are any
+  situations where it really should be used; think carefully before using it.
+ */
+void FixNumStates(FsaVec *fsas);
 
 }  // namespace k2
 

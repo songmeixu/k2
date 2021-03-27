@@ -47,6 +47,8 @@ Dtype ScalarTypeToDtype(torch::ScalarType scalar_type) {
       return kDoubleDtype;
     case torch::kInt:
       return kInt32Dtype;
+    case torch::kLong:
+      return kInt64Dtype;
     default:
       // TODO(fangjun): add other type when needed
       K2_LOG(FATAL) << "Unsupported scalar_type: " << scalar_type;
@@ -62,6 +64,8 @@ torch::ScalarType ScalarTypeFromDtype(Dtype dtype) {
       return torch::kDouble;
     case kInt32Dtype:
       return torch::kInt;
+    case kInt64Dtype:
+      return torch::kLong;
     default:
       // TODO(fangjun): add other type when needed
       K2_LOG(FATAL) << "Unsupported dtype: " << TraitsOf(dtype).Name();
@@ -137,6 +141,13 @@ torch::Tensor ToTensor(Tensor &tensor) {
   return torch::from_blob(
       tensor.Data(), sizes, strides,
       [saved_region = tensor.GetRegion()](void *) {}, options);
+}
+
+ContextPtr GetContext(torch::Tensor tensor) {
+  if (tensor.device().type() == torch::kCPU) return GetCpuContext();
+
+  K2_CHECK(tensor.is_cuda());
+  return GetCudaContext(tensor.device().index());
 }
 
 }  // namespace k2

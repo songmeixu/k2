@@ -1,21 +1,18 @@
 /**
- * @brief
- * log
- *
- * @copyright
  * Copyright (c)  2020  Mobvoi Inc.        (authors: Fangjun Kuang)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
 #include <gtest/gtest.h>
 
+#include "k2/csrc/context.h"
 #include "k2/csrc/log.h"
 
 namespace k2 {
 
 TEST(Log, Cpu) {
+  K2_LOG(TRACE) << "Trace message";
   K2_LOG(DEBUG) << "Debug message";
   K2_LOG(INFO) << "Info message";
   K2_LOG(WARNING) << "Warning message";
@@ -51,7 +48,9 @@ __global__ void DummyKernel(int32_t *b, int32_t a) {
 }
 
 TEST(Log, Cuda) {
+  K2_LOG(TRACE) << "Trace message for cuda";
   K2_LOG(INFO) << "Test log for cuda";
+  if (GetCudaContext()->GetDeviceType() == kCpu) return;
   int32_t a = 10;
   int32_t *b = nullptr;
   auto ret = cudaMalloc(&b, sizeof(a));
@@ -72,25 +71,26 @@ TEST(Log, Cuda) {
 }
 
 TEST(LogDeathTest, NegativeCases) {
-  ASSERT_DEATH(K2_LOG(FATAL) << "This will crash the program", "");
+  ASSERT_THROW(K2_LOG(FATAL) << "This will crash the program",
+               std::runtime_error);
 
   int32_t a = 10;
   int32_t b = 20;
   int32_t c = a;
-  ASSERT_DEATH(K2_CHECK_EQ(a, b), "");
-  ASSERT_DEATH(K2_CHECK_NE(a, c), "");
+  ASSERT_THROW(K2_CHECK_EQ(a, b), std::runtime_error);
+  ASSERT_THROW(K2_CHECK_NE(a, c), std::runtime_error);
 
-  ASSERT_DEATH(K2_CHECK_LE(b, a), "");
-  ASSERT_DEATH(K2_CHECK_LT(b, a), "");
+  ASSERT_THROW(K2_CHECK_LE(b, a), std::runtime_error);
+  ASSERT_THROW(K2_CHECK_LT(b, a), std::runtime_error);
 
-  ASSERT_DEATH(K2_CHECK_GE(a, b), "");
-  ASSERT_DEATH(K2_CHECK_GT(a, b), "");
+  ASSERT_THROW(K2_CHECK_GE(a, b), std::runtime_error);
+  ASSERT_THROW(K2_CHECK_GT(a, b), std::runtime_error);
 
   auto ret = cudaErrorMemoryAllocation;
-  ASSERT_DEATH(K2_CHECK_CUDA_ERROR(ret), "");
+  ASSERT_THROW(K2_CHECK_CUDA_ERROR(ret), std::runtime_error);
 
   ret = cudaErrorAssert;
-  ASSERT_DEATH(K2_CHECK_CUDA_ERROR(ret), "");
+  ASSERT_THROW(K2_CHECK_CUDA_ERROR(ret), std::runtime_error);
 
   // NOTE: normally we do not need to
   // check if NDEBUG is defined in order
@@ -101,19 +101,20 @@ TEST(LogDeathTest, NegativeCases) {
   // so we have to add a guard here.
 #if !defined(NDEBUG)
   K2_LOG(INFO) << "Check for debug build";
-  ASSERT_DEATH(K2_DLOG(FATAL) << "This will crash the program", "");
+  ASSERT_THROW(K2_DLOG(FATAL) << "This will crash the program",
+               std::runtime_error);
 
-  ASSERT_DEATH(K2_DCHECK_EQ(a, b), "");
-  ASSERT_DEATH(K2_DCHECK_NE(a, c), "");
+  ASSERT_THROW(K2_DCHECK_EQ(a, b), std::runtime_error);
+  ASSERT_THROW(K2_DCHECK_NE(a, c), std::runtime_error);
 
-  ASSERT_DEATH(K2_DCHECK_LE(b, a), "");
-  ASSERT_DEATH(K2_DCHECK_LT(b, a), "");
+  ASSERT_THROW(K2_DCHECK_LE(b, a), std::runtime_error);
+  ASSERT_THROW(K2_DCHECK_LT(b, a), std::runtime_error);
 
-  ASSERT_DEATH(K2_DCHECK_GE(a, b), "");
-  ASSERT_DEATH(K2_DCHECK_GT(a, b), "");
+  ASSERT_THROW(K2_DCHECK_GE(a, b), std::runtime_error);
+  ASSERT_THROW(K2_DCHECK_GT(a, b), std::runtime_error);
 
   ret = cudaErrorInitializationError;
-  ASSERT_DEATH(K2_DCHECK_CUDA_ERROR(ret), "");
+  ASSERT_THROW(K2_DCHECK_CUDA_ERROR(ret), std::runtime_error);
 #endif
 }
 

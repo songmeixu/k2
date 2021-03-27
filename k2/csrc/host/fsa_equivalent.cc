@@ -1,11 +1,6 @@
 /**
- * @brief
- * fsa_equivalent
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Haowen Qiu)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -28,6 +23,8 @@
 #include "k2/csrc/host/topsort.h"
 #include "k2/csrc/host/util.h"
 #include "k2/csrc/host/weights.h"
+#include "k2/csrc/macros.h"
+#include "k2/csrc/nvtx.h"
 
 namespace {
 /*
@@ -39,6 +36,7 @@ namespace {
  */
 static bool Connect(const k2host::Fsa &fsa_in, k2host::FsaCreator *fsa_out,
                     std::vector<int32_t> *arc_map = nullptr) {
+  NVTX_RANGE(K2_FUNC);
   k2host::Connection connection(fsa_in);
   k2host::Array2Size<int32_t> fsa_size;
 
@@ -61,6 +59,7 @@ static bool Connect(const k2host::Fsa &fsa_in, k2host::FsaCreator *fsa_out,
  */
 static void ArcSort(const k2host::Fsa &fsa_in, k2host::FsaCreator *fsa_out,
                     std::vector<int32_t> *arc_map = nullptr) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(fsa_out, nullptr);
   k2host::ArcSorter sorter(fsa_in);
   k2host::Array2Size<int32_t> fsa_size;
@@ -81,6 +80,7 @@ static void ArcSort(const k2host::Fsa &fsa_in, k2host::FsaCreator *fsa_out,
  */
 static void TopSort(const k2host::Fsa &fsa_in, k2host::FsaCreator *fsa_out,
                     std::vector<int32_t> *arc_map = nullptr) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(fsa_out, nullptr);
   k2host::TopSorter sorter(fsa_in);
   k2host::Array2Size<int32_t> fsa_size;
@@ -103,6 +103,7 @@ static bool Intersect(const k2host::Fsa &a, const k2host::Fsa &b,
                       bool treat_epsilons_specially, k2host::FsaCreator *c,
                       std::vector<int32_t> *arc_map_a = nullptr,
                       std::vector<int32_t> *arc_map_b = nullptr) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(c, nullptr);
   k2host::Intersection intersection(a, b, treat_epsilons_specially);
   k2host::Array2Size<int32_t> fsa_size;
@@ -128,6 +129,7 @@ static bool Intersect(const k2host::Fsa &a, const k2host::Fsa &b,
 static bool RandomPath(const k2host::Fsa &fsa_in, bool no_eps_arc,
                        k2host::FsaCreator *path,
                        std::vector<int32_t> *arc_map = nullptr) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(path, nullptr);
   k2host::RandPath rand_path(fsa_in, no_eps_arc);
   k2host::Array2Size<int32_t> fsa_size;
@@ -145,6 +147,7 @@ static bool RandomPath(const k2host::Fsa &fsa_in, bool no_eps_arc,
 static void SetDifference(const std::unordered_set<int32_t> &a,
                           const std::unordered_set<int32_t> &b,
                           std::unordered_set<int32_t> *c) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(c, nullptr);
   c->clear();
   for (const auto &v : a) {
@@ -162,6 +165,11 @@ namespace k2host {
 bool IsRandEquivalent(const Fsa &a, const Fsa &b,
                       bool treat_epsilons_specially /*=true*/,
                       std::size_t npath /*=100*/) {
+  NVTX_RANGE(K2_FUNC);
+  if (!IsValid(a) || !IsValid(b)) {
+    K2_LOG(WARNING) << "One or more of the inputs is not valid.";
+    return false;
+  }
   FsaCreator valid_a_storage, valid_b_storage;
   ::Connect(a, &valid_a_storage);
   ::Connect(b, &valid_b_storage);
@@ -169,6 +177,7 @@ bool IsRandEquivalent(const Fsa &a, const Fsa &b,
   ArcSort(&valid_b_storage.GetFsa());
   const auto &valid_a = valid_a_storage.GetFsa();
   const auto &valid_b = valid_b_storage.GetFsa();
+
   if (IsEmpty(valid_a) && IsEmpty(valid_b)) return true;
   if (IsEmpty(valid_a) || IsEmpty(valid_b)) return false;
 
@@ -179,9 +188,11 @@ bool IsRandEquivalent(const Fsa &a, const Fsa &b,
   for (const auto &arc : valid_a) labels_a.insert(arc.label);
   for (const auto &arc : valid_b) labels_b.insert(arc.label);
   SetDifference(labels_a, labels_b, &labels_difference);
+
   if (labels_difference.size() >= 2 ||
       (labels_difference.size() == 1 &&
-       (*(labels_difference.begin())) != kEpsilon))
+       (!treat_epsilons_specially ||
+        (*(labels_difference.begin())) != kEpsilon)))
     return false;
 
   FsaCreator c_storage, valid_c_storage;
@@ -217,6 +228,11 @@ bool IsRandEquivalent(const Fsa &a, const Fsa &b,
                       bool treat_epsilons_specially /*=true*/,
                       float delta /*=1e-6*/, bool top_sorted /*=true*/,
                       std::size_t npath /*= 100*/) {
+  NVTX_RANGE(K2_FUNC);
+  if (!IsValid(a) || !IsValid(b)) {
+    K2_LOG(WARNING) << "One or more of the inputs is not valid.";
+    return false;
+  }
   K2_CHECK_GT(beam, 0);
   // TODO(haowen): for now we only support top-sorted input Fsas
   K2_CHECK(top_sorted);
@@ -239,17 +255,17 @@ bool IsRandEquivalent(const Fsa &a, const Fsa &b,
   for (const auto &arc : valid_a) labels_a.insert(arc.label);
   for (const auto &arc : valid_b) labels_b.insert(arc.label);
   SetDifference(labels_a, labels_b, &labels_difference);
+
   if (labels_difference.size() >= 2 ||
       (labels_difference.size() == 1 &&
-       (*(labels_difference.begin())) != kEpsilon))
+       (!treat_epsilons_specially ||
+        (*(labels_difference.begin())) != kEpsilon)))
     return false;
 
   double dist_a = ShortestDistance<Type>(valid_a),
-      dist_b = ShortestDistance<Type>(valid_b),
-      loglike_cutoff_a = dist_a - beam,
-      loglike_cutoff_b = dist_b - beam;
-  if (abs(dist_a - dist_b) > delta)
-    return false;
+         dist_b = ShortestDistance<Type>(valid_b),
+         loglike_cutoff_a = dist_a - beam, loglike_cutoff_b = dist_b - beam;
+  if (abs(dist_a - dist_b) > delta) return false;
 
   std::random_device rd;
   std::mt19937 gen(rd());
@@ -305,6 +321,7 @@ bool IsRandEquivalentAfterRmEpsPrunedLogSum(const Fsa &a, const Fsa &b,
                                             float beam,
                                             bool top_sorted /*= true*/,
                                             std::size_t npath /*= 100*/) {
+  NVTX_RANGE(K2_FUNC);
   // TODO(haowen): the implementation may be not correct, we need to check this
   K2_LOG(FATAL)
       << "Don't call this function for now, the implementation may be "
@@ -389,99 +406,81 @@ bool IsRandEquivalentAfterRmEpsPrunedLogSum(const Fsa &a, const Fsa &b,
 }
 
 void RandPath::GetSizes(Array2Size<int32_t> *fsa_size) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(fsa_size, nullptr);
   fsa_size->size1 = fsa_size->size2 = 0;
 
-  arc_indexes_.clear();
+  arc_map_.clear();
   arcs_.clear();
   arc_map_.clear();
 
   status_ = !IsEmpty(fsa_in_) && IsConnected(fsa_in_);
   if (!status_) return;
 
-  int32_t num_states = fsa_in_.NumStates();
-  std::vector<int32_t> state_map_in_to_out(num_states, -1);
-  // `visited_arcs[i]` maps `arcs` leaving from state `i` in the output `path`
-  // to arc-index in the input FSA.
-  std::vector<std::unordered_map<Arc, int32_t, ArcHash>> visited_arcs;
-
   std::random_device rd;
   std::mt19937 generator(rd());
   std::uniform_int_distribution<int32_t> distribution(0);
 
-  int32_t num_visited_arcs = 0;
-  int32_t num_visited_state = 0;
-  int32_t state = 0;
-  int32_t final_state = fsa_in_.FinalState();
-  while (true) {
-    if (state_map_in_to_out[state] == -1) {
-      state_map_in_to_out[state] = num_visited_state;
-      visited_arcs.emplace_back(std::unordered_map<Arc, int32_t, ArcHash>());
-      ++num_visited_state;
+
+  {
+    arcs_.clear();
+    arc_map_.clear();
+    int32_t state = 0;
+    int32_t final_state = fsa_in_.FinalState();
+    while (true) {
+      if (state == final_state) break;
+      const Arc *curr_arc = nullptr;
+      int32_t arc_index_in = -1;
+      int32_t tries = 0;
+      do {
+        int32_t begin = fsa_in_.indexes[state];
+        int32_t end = fsa_in_.indexes[state + 1];
+        // since `fsa_in_` is valid, so every state contains at least one arc.
+        arc_index_in = begin + (distribution(generator) % (end - begin));
+        curr_arc = &fsa_in_.data[arc_index_in];
+        ++tries;
+      } while (no_epsilon_arc_ && curr_arc->label == kEpsilon &&
+               tries < eps_arc_tries_);
+      if (no_epsilon_arc_ && curr_arc->label == kEpsilon &&
+          tries >= eps_arc_tries_) {
+        status_ = false;
+        return;
+      }
+
+      Arc arc = *curr_arc;
+      state = arc.dest_state;
+      arc.src_state = arcs_.size();
+      arc.dest_state = arc.src_state + 1;
+      arcs_.push_back(arc);
+      arc_map_.push_back(curr_arc - fsa_in_.data);
     }
-    if (state == final_state) break;
-    const Arc *curr_arc = nullptr;
-    int32_t arc_index_in = -1;
-    int32_t tries = 0;
-    do {
-      int32_t begin = fsa_in_.indexes[state];
-      int32_t end = fsa_in_.indexes[state + 1];
-      // since `fsa_in_` is valid, so every state contains at least one arc.
-      arc_index_in = begin + (distribution(generator) % (end - begin));
-      curr_arc = &fsa_in_.data[arc_index_in];
-      ++tries;
-    } while (no_epsilon_arc_ && curr_arc->label == kEpsilon &&
-             tries < eps_arc_tries_);
-    if (no_epsilon_arc_ && curr_arc->label == kEpsilon &&
-        tries >= eps_arc_tries_) {
-      status_ = false;
-      return;
-    }
-    int32_t state_id_out = state_map_in_to_out[state];
-    if (visited_arcs[state_id_out]
-            .insert({{state, curr_arc->dest_state, curr_arc->label,
-                      curr_arc->weight},
-                     arc_index_in - fsa_in_.indexes[0]})
-            .second)
-      ++num_visited_arcs;
-    state = curr_arc->dest_state;
   }
 
-  arc_indexes_.resize(num_visited_state);
-  arcs_.resize(num_visited_arcs);
-  arc_map_.resize(num_visited_arcs);
-  int32_t n = 0;
-  for (int32_t i = 0; i != num_visited_state; ++i) {
-    arc_indexes_[i] = n;
-    for (const auto &arc_with_index : visited_arcs[i]) {
-      const auto &arc = arc_with_index.first;
-      auto &output_arc = arcs_[n];
-      output_arc.src_state = i;
-      output_arc.dest_state = state_map_in_to_out[arc.dest_state];
-      output_arc.label = arc.label;
-      arc_map_[n] = arc_with_index.second;
-      ++n;
-    }
-  }
-  arc_indexes_.emplace_back(arc_indexes_.back());
-
-  fsa_size->size1 = num_visited_state;
-  fsa_size->size2 = num_visited_arcs;
+  int32_t num_states = arcs_.size() + 1,
+      num_arcs = arcs_.size();
+  fsa_size->size1 = num_states;
+  fsa_size->size2 = num_arcs;
 }
 
 bool RandPath::GetOutput(Fsa *fsa_out, int32_t *arc_map /*= nullptr*/) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(fsa_out, nullptr);
   if (!status_) return false;
 
   // output fsa
   K2_CHECK_NE(fsa_out, nullptr);
-  K2_CHECK_EQ(arc_indexes_.size(), fsa_out->size1 + 1);
-  std::copy(arc_indexes_.begin(), arc_indexes_.end(), fsa_out->indexes);
+
+  for (int32_t i = 0; i < fsa_out->size1; i++)
+    fsa_out->indexes[i] = i;
+  // num-arcs is num-states - 1, last state has no arcs.
+  fsa_out->indexes[fsa_out->size1] = fsa_out->size1 - 1;
+
   K2_CHECK_EQ(arcs_.size(), fsa_out->size2);
+
   std::copy(arcs_.begin(), arcs_.end(), fsa_out->data);
 
-  // output arc map
-  if (arc_map != nullptr) std::copy(arc_map_.begin(), arc_map_.end(), arc_map);
+  if (arc_map != nullptr)
+    std::copy(arc_map_.begin(), arc_map_.end(), arc_map);
 
   return true;
 }

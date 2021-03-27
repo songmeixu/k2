@@ -8,8 +8,9 @@
 #ifndef K2_CSRC_TENSOR_OPS_H_
 #define K2_CSRC_TENSOR_OPS_H_
 
-#include "k2/csrc/tensor.h"
 #include "k2/csrc/array.h"
+#include "k2/csrc/ragged.h"
+#include "k2/csrc/tensor.h"
 
 namespace k2 {
 
@@ -38,12 +39,13 @@ Tensor ToContiguous(const Tensor &src);
  */
 Tensor Cast(Tensor src, Dtype new_dtype);
 
-
 /*
   Returns a Tensor that is a result of indexing `src` along its
   axis 0 with `indexes`, as if you had done src[indexes] in Pytorch.
 
-     @param [in] src  Source tensor, to be indexed
+     @param [in] src  Source tensor, to be indexed. Currently, it
+                      supports only 1-D and 2-D tensors. If the
+                      tensor is 2-D, it requires that its Stride(1) is 1.
      @param [in] indexes   Indexes to use; if allow_minus_one == false,
                      must satisfy 0 <= indexes[i] < src.Dim(0);
                      if allow_minus_one == true, -1 is also allowed
@@ -53,9 +55,11 @@ Tensor Cast(Tensor src, Dtype new_dtype);
                      of `indexes` and the corresponding output elements
                      will be zero.
      @return   Returns a Tensor with the same dtype as `src`, and
-                     shape (indexes.Dim(), src.Dim(1), src.Dim2(2), ...),
+                     shape (indexes.Dim(), src.Dim(1), src.Dim(2), ...),
                      i.e. with the same num-axes as `src` and
                      axis 0's dim replaced with indexes.Dim().
+                     Noted the ans would be contiguous even though `src`
+                     is not contiguous.
  */
 Tensor Index(Tensor &src, Array1<int32_t> &indexes,
              bool allow_minus_one = true);
@@ -82,16 +86,14 @@ Tensor Index(Tensor &src, Array1<int32_t> &indexes,
                  `src` where i != -1,
                  did: `ans[indexes[i],j,k,..] += src[i,j,k..]`.
  */
-Tensor IndexAdd(Tensor &src,
-                Array1<int32_t> &indexes,
-                int32_t dim,
+Tensor IndexAdd(Tensor &src, Array1<int32_t> &indexes, int32_t dim,
                 bool allow_minus_one = true);
 
 /*
   Version of IndexAdd() that does not allocate the tensor, but expects it
   to already be allocated (and set to zero, if appropriate).
-           @param [in] src  Source tensor whose elemnts are to be added to
-                            `dest`
+           @param [in] src  Source tensor whose elements are to be added to
+                            `dest`. It supports only 1-D and 2-D tensors.
            @param [in] indexes  Indexes with `indexes.Dim() == src.Dim(0)`.
                       If allow_minus_one == false, these must
                       satisfy 0 <= indexes[i] < dim; if allow_minus_one == true,
@@ -104,14 +106,29 @@ Tensor IndexAdd(Tensor &src,
                       `(*dest)[indexes[i],j,k..] += src[i,j,k]`
                       (if `indexes[i] != -1`).
  */
-void IndexAdd(Tensor &src,
-              Array1<int32_t> &indexes,
-              bool allow_minus_one,
+void IndexAdd(Tensor &src, Array1<int32_t> &indexes, bool allow_minus_one,
               Tensor *dest);
 
+/*
+  Returns a 1-D Tensor that is a result of indexing 1-D `src` with Ragged array
+  `indexes` whose NumAxes() is 2. ans.Dims()[0] will equal to indexes.Dim0() as
+  we suppose there is at most one non-zero element in `src` for any indexes
+  sub-list in `indexes`.
 
-
-
+     @param [in] src  Source 1-D tensor, to be indexed.
+     @param [in] indexes   Indexes to use whose NumAxes() == 2, for any
+                      sub-list `i` in `indexes`, we suppose there is at most
+                      one non-zero value in `src` and we'll set ans[i]
+                      with that non-zero value; if all values for
+                      sub-list `i` is zero or the sub-list is empty, we just
+                      set ans[i] == 0.
+     @return   Returns a Tensor with the same dtype as `src` and shape
+                     (indexes.Dim0()), i.e. a 1-D tensor whose number of
+                     elements equal to `indexes.Dim0()`.
+                     Noted the ans would be contiguous even though `src`
+                     is not contiguous.
+ */
+Tensor SimpleRaggedIndexSelect1D(Tensor &src, Ragged<int32_t> &indexes);
 }  // namespace k2
 
 #endif  // K2_CSRC_TENSOR_OPS_H_

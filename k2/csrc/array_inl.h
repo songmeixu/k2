@@ -1,15 +1,6 @@
 /**
- * @brief
- * array_inl
- *
- * @note
- * Don't include this file directly; it is included by array.h.
- * It contains implementation code.
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Daniel Povey, Haowen Qiu)
  *                      Mobvoi Inc.        (authors: Fangjun Kuang)
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -21,7 +12,6 @@
 #endif
 
 #include <algorithm>
-#include <cassert>
 #include <random>
 #include <string>
 #include <type_traits>
@@ -29,12 +19,14 @@
 #include <vector>
 
 #include "cub/cub.cuh"
+#include "k2/csrc/macros.h"
 #include "k2/csrc/utils.h"
 
 namespace k2 {
 
 template <typename T>
 Array1<T> Array1<T>::Clone() const {
+  NVTX_RANGE(K2_FUNC);
   Array1<T> ans(Context(), Dim());
   ans.CopyFrom(*this);
   return ans;
@@ -42,19 +34,19 @@ Array1<T> Array1<T>::Clone() const {
 
 template <typename T>
 void Array1<T>::CopyFrom(const Array1<T> &src) {
-  NVTX_RANGE("Array1::CopyFrom");
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_EQ(dim_, src.dim_);
   if (dim_ == 0) return;
-  auto kind = GetMemoryCopyKind(*src.Context(), *Context());
+
   const T *src_data = src.Data();
   T *dst_data = this->Data();
-  MemoryCopy(static_cast<void *>(dst_data), static_cast<const void *>(src_data),
-             Dim() * ElementSize(), kind, Context().get());
+
+  src.Context()->CopyDataTo(Dim() * ElementSize(), src_data, Context(),
+                            dst_data);
 }
 template <typename T>
 std::ostream &operator<<(std::ostream &stream, const Array1<T> &array) {
-  if (array.GetRegion() == nullptr)
-    return stream << "<invalid Array1>";
+  if (array.GetRegion() == nullptr) return stream << "<invalid Array1>";
   stream << "[ ";
   Array1<T> to_print = array.To(GetCpuContext());
   const T *to_print_data = to_print.Data();
@@ -66,13 +58,12 @@ std::ostream &operator<<(std::ostream &stream, const Array1<T> &array) {
 
 template <typename T>
 std::ostream &operator<<(std::ostream &stream, const Array2<T> &array) {
-  if (array.GetRegion() == nullptr)
-    return stream << "<invalid Array2>";
+  if (array.GetRegion() == nullptr) return stream << "<invalid Array2>";
   stream << "\n[";
   Array2<T> array_cpu = array.To(GetCpuContext());
   int32_t num_rows = array_cpu.Dim0();
   for (int32_t i = 0; i < num_rows; ++i) {
-    stream << ToPrintable(array_cpu[i]);
+    stream << ToPrintable(array_cpu.Row(i));
     if (i + 1 < num_rows) stream << '\n';
   }
   return stream << "\n]";
@@ -105,7 +96,8 @@ std::istream &operator>>(std::istream &is, Array2<T> &array) {
           num_rows++;
           if (num_rows == 1) {
             row_length = vec.size();
-          } else if (vec.size() != row_length * num_rows) {
+          } else if (static_cast<int32_t>(vec.size()) !=
+                     row_length * num_rows) {
             is.setstate(std::ios::failbit);
             return is;
           }

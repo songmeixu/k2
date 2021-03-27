@@ -1,12 +1,8 @@
 /**
- * @brief
- * ragged_ops
+ * Copyright (c)  2020-2021  Xiaomi Corporation (authors: Daniel Povey
+ *                                                        Haowen Qiu
+ *                                                        Fangjun Kuang)
  *
- * @copyright
- * Copyright (c)  2020  Xiaomi Corporation (authors: Daniel Povey
- *                                                   Haowen Qiu)
- *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -19,6 +15,7 @@
 #include "k2/csrc/algorithms.h"
 #include "k2/csrc/array.h"
 #include "k2/csrc/log.h"
+#include "k2/csrc/macros.h"
 #include "k2/csrc/ragged.h"
 #include "k2/csrc/utils.h"
 
@@ -31,49 +28,95 @@ namespace k2 {
 
      @param [in] src            Input ragged array; must have src.NumAxes()
                                 >= 2. src.values is allowed to be empty.
-     @param [in] default_value  Value to initialize the reduction with;
+     @param [in] initial_value  Value to initialize the reduction with;
      @param [out] dst           Array to which the reduction values will be
                                 written. Must satisfy
-                                dst->Dim() == rows along the last axis in src,
-                                i.e. src.RowSplits(src.NumAxes() - 1).Dim() - 1.
+                                dst->Dim() == src.TotSize(src.NumAxes()
+                                - 2).  i.e. num-rows of last axis of `src`.
 */
 
 template <typename T, typename Op>
-void ApplyOpPerSublist(Ragged<T> &src, T default_value, Array1<T> *dst);
+void SegmentedReduce(Ragged<T> &src, T initial_value, Array1<T> *dst);
+
 /*
   Output to an array `max_values` the maximum of each sub-list along the last
-  axis of `src` i.e. the max taken over the last axis), or `default_value`,
+  axis of `src` i.e. the max taken over the last axis), or `initial_value`,
   whichever was larger.
 
      @param [in] src            Input ragged array; must have src.NumAxes()
                                 >= 2. src.values is allowed to be empty.
-     @param [in] default_value  Value to use for maximum operation as a default
+     @param [in] initial_value  Value to use for maximum operation as a default
                                 so max is taken over this and the elements
                                 of sub-lists in `src`.
      @param [out] max_values    Array to which the maximum values will be
                                 written. Must satisfy
-                                max_values->Dim() == rows along the last axis in
-                                src, i.e.
-                                src.RowSplits(src.NumAxes() - 1).Dim() - 1.
+                                max_values->Dim() == src.TotSize(src.NumAxes()
+                                - 2).  i.e. num-rows of last axis of `src`.
  */
 template <typename T>
-void MaxPerSublist(Ragged<T> &src, T default_value, Array1<T> *max_values) {
-  ApplyOpPerSublist<T, MaxOp<T>>(src, default_value, max_values);
+void MaxPerSublist(Ragged<T> &src, T initial_value, Array1<T> *max_values) {
+  SegmentedReduce<T, MaxOp<T>>(src, initial_value, max_values);
 }
 
 // Same with `MaxPerSubList`, but output the `min_value` in each sub-list.
 template <typename T>
-void MinPerSublist(Ragged<T> &src, T default_value, Array1<T> *min_values) {
-  ApplyOpPerSublist<T, MinOp<T>>(src, default_value, min_values);
+void MinPerSublist(Ragged<T> &src, T initial_value, Array1<T> *min_values) {
+  SegmentedReduce<T, MinOp<T>>(src, initial_value, min_values);
+}
+
+// Same with `MaxPerSubList`, but output the sum of values in each sub-list.
+template <typename T>
+void SumPerSublist(Ragged<T> &src, T initial_value, Array1<T> *sum_values) {
+  SegmentedReduce<T, PlusOp<T>>(src, initial_value, sum_values);
 }
 
 // Same with `MaxPerSubList`, but with Op as `LogAdd`.
 template <typename T>
-void LogSumPerSublist(Ragged<T> &src, T default_value, Array1<T> *dst_values) {
+void LogSumPerSublist(Ragged<T> &src, T initial_value, Array1<T> *dst_values) {
   K2_STATIC_ASSERT(
       (std::is_same<float, T>::value || std::is_same<double, T>::value));
-  ApplyOpPerSublist<T, LogAdd<T>>(src, default_value, dst_values);
+  SegmentedReduce<T, LogAdd<T>>(src, initial_value, dst_values);
 }
+
+/*
+  Output to an array `max_values` the arg-max within each sub-list along the
+  last axis of `src` i.e. the max taken over the last axis), i.e. the index
+  within `src.values` of the maximum element of that sub-list, or -1
+  if the sub-list was empty or all values in the sub-list are less than
+  `initial_value`.
+
+     @param [in] src        Input ragged array; must have src.NumAxes() >= 2.
+                            src.values is allowed to be empty.
+     @param [out] argmax    Array to which the argmax indexes will be written.
+                            argmax->Dim() == src.TotSize(src.NumAxes() - 2),
+                            i.e. num-rows of last axis of `src`.
+ */
+template <typename T>
+void ArgMaxPerSublist(Ragged<T> &src, T initial_value, Array1<int32_t> *argmax);
+
+/* Normalize per sublist.
+
+   @param [in] src  The source ragged tensor. The normalization
+                    is done on the last axis.
+   @param [in] use_log  Indicate which kind of normalization to use. See
+                        below for detailed description.
+
+   If use_log is true, the normalization per sublist is done as follows:
+
+      1. Compute the log sum using LogSumPerSublist
+      2. Subtract the log sum from the sublist
+      3. Return the resulting sublist
+
+   If use_log is false, the normalization per sublist is done as follows:
+
+      1. Compute the sum using SumPerSublist
+      2. Divide the sublist by the above sum
+      3. Return the resulting sublist
+
+   @return The normalized ragged tensor.
+ */
+template <typename T>
+Ragged<T> NormalizePerSublist(Ragged<T> &src, bool use_log);
 
 /*
   Output to an array `and_values` the result of reducing each sub-list along
@@ -81,39 +124,23 @@ void LogSumPerSublist(Ragged<T> &src, T default_value, Array1<T> *dst_values) {
 
      @param [in] src            Input ragged array; must have src.NumAxes()
                                 >= 2. src.values is allowed to be empty.
-     @param [in] default_value  Value to initialize the reduction with; should
+     @param [in] initial_value  Value to initialize the reduction with; should
                                 probably be all-ones.
      @param [out] and_values    Array to which the bitwise-and values will be
                                 written. Must satisfy
                                 and_values->Dim() == src.TotSize(src.NumAxes() -
-  2), i.e. the total size on the second-to-last axis of `src`.
+                                2), i.e. num-rows of the last axis of `src`.
 */
 template <typename T>
-void AndPerSublist(Ragged<T> &src, T default_value, Array1<T> *and_values) {
-  ApplyOpPerSublist<T, BitAndOp<T>>(src, default_value, and_values);
+void AndPerSublist(Ragged<T> &src, T initial_value, Array1<T> *and_values) {
+  SegmentedReduce<T, BitAndOp<T>>(src, initial_value, and_values);
 }
 
 // bitwise or
 template <typename T>
-void OrPerSublist(Ragged<T> &src, T default_value, Array1<T> *or_values) {
-  ApplyOpPerSublist<T, BitOrOp<T>>(src, default_value, or_values);
+void OrPerSublist(Ragged<T> &src, T initial_value, Array1<T> *or_values) {
+  SegmentedReduce<T, BitOrOp<T>>(src, initial_value, or_values);
 }
-
-/*
-  Sort each sub-list in `src`, with operator `<`, and output the order to
-  `order`. CAUTION: don't rely on this being a stable sort for now. Will
-  eventually make the operator customizable, in which case this would become a
-  wrapper.
-
-      @param [in] src   Ragged array with 2 axes.
-      @param [out] order   List of indexes that we'll use to give `src`
-                      a sorted order; will be resized if its size is
-                      not src.values.Dim().  If you do
-                        src.values = src.values[*order]
-                      then src.values will be sorted.
- */
-template <typename T, typename Op>
-void SortSublists(Ragged<T> &src, Array1<int32_t> *order);
 
 /*
   Stack a list of RaggedShape to create a RaggedShape with one more axis.
@@ -123,10 +150,14 @@ void SortSublists(Ragged<T> &src, Array1<int32_t> *order);
      @param [in] src_size  The number of `RaggedShape`s in `src`
      @param [in] src    The shapes to be stacked
      @param [in] axis   The new axis whose dimension will equal src_size.
-                        CAUTION: only axis == 0 and axis == 1 are supported
-                        right now, and for the axis==1 case we have a
-                        requirement that all the src[i]->Dim0() have the
-                        same value.
+                        Dimensions/shapes of all previous axes must be
+                        identical.
+     @param [out] merge_map  If not nullptr, will be set to the merge-map
+                        that tells us for each 0 <= i < ans.NumElements(),
+                        which element of `src` it came from (available
+                        as `merge_map[i] % num_srcs`) and its element-index
+                        within `src[i]` (available as `merge_map[i] / num_srcs`.
+
 
      @return  The appended result.
         Viewing the source and result as the shapes of n-dimensional arrays,
@@ -138,7 +169,8 @@ void SortSublists(Ragged<T> &src, Array1<int32_t> *order);
         and these are just the shapes of arrays..).
         See also the version of Stack for class Ragged.
  */
-RaggedShape Stack(int32_t axis, int32_t src_size, RaggedShape **src);
+RaggedShape Stack(int32_t axis, int32_t src_size, RaggedShape **src,
+                  Array1<uint32_t> *merge_map = nullptr);
 
 /*
   Return a modified version of `src` in which all sub-lists on the last axis of
@@ -163,8 +195,214 @@ RaggedShape Stack(int32_t axis, int32_t src_size, RaggedShape **src);
     [ [ x x x ] [ x x x x ] ]
   (using the x as placeholders for the values since these are unknown).
  */
-RaggedShape ChangeSublistSize(RaggedShape &src, int32_t size_delta);
+RaggedShape ChangeSublistSize(const RaggedShape &src, int32_t size_delta);
 
+/*
+  A version of ChangeSublistSize() with different behavior for edge
+  cases.  If size_delta is positive and the original size of a sub-list
+  was zero, then the sub-list is left at zero size, e.g.:
+
+    ChangeSublistSizePinned( [[ x x ] [ ]], 1) returns [[ x x x ] []].
+
+  If size_delta is negative then if reducing the size would take us below
+  zero size we let the size be zero (unlike in ChangeSublistSize(), where this
+  would be an error).   So
+     ChangeSublistSizePinned( [[ x x x ] [ ]], -2) returns [[ x ] []].
+ */
+RaggedShape ChangeSublistSizePinned(RaggedShape &src, int32_t size_delta);
+
+/*
+  Return a sub-part of a RaggedShape containing indexes 0 through n-1 of
+  its 1st axis.
+      @param [in] src  Source RaggedShape
+      @param [in] n    Number of (leading) indexes to keep; result will
+                       satisfy ans.Dim0() == n; Must have 0 <= n <= src.Dim0().
+      @return          Returns RaggedShape containing a prefix of `src`.
+                       It will share memory with `src`.
+ */
+RaggedShape Prefix(RaggedShape &src, int32_t n);
+
+/*
+  Return a vector of RaggedShapes containing various prefixes of `src`.
+
+        @param [in] src    Source RaggedShape
+        @param [in] sizes  Lengths of desired prefixes; all elements
+                           will satisfy 0 <= sizes[i] <= src.Dim0().
+        @return   Returns vector of prefixes of a RaggedShape;
+                  ans[i] will be equal to Prefix(src, sizes[i]).
+                  We provide this interface because individual
+                  calls to `Prefix` would otherwise require multiple
+                  GPU->CPU memory transfers.
+ */
+std::vector<RaggedShape> GetPrefixes(RaggedShape &src,
+                                     const std::vector<int32_t> &sizes);
+
+/*
+  This object splits a ragged shape on its axis 0, giving you efficient
+  axis to the sub-parts of it for each index into its axis0.
+ */
+class RaggedShapeAxis0Splitter {
+ public:
+  explicit RaggedShapeAxis0Splitter(RaggedShape &src) { Init(src); }
+
+  /*
+     Return sub-part of `src`
+        @param [in] i   Index into axis 0 of `src`, with 0 <= i < src.Dim0().
+        @param [out] elem_offset  If not nullptr, will output to this
+                     location the offset into the `values` array that
+                     you'd need to start, to get the values of this
+                     sub-part of the ragged shape.  Will satisfy
+                     0 <= elem_offset <= src.NumElements().
+        @return  Returns the sub-part of `src`, with one fewer axis
+                  than `src`.  Is equivalent to calling src.Index(0, i,
+                  elem_offset), but more efficient if you'll do this for most of
+                  the `i`.
+  */
+  RaggedShape GetElement(int32_t i, int32_t *elem_offset = nullptr);
+
+  /*
+    This is provided in case you need to know how the indexes of the sub-pieces
+    relate to the indexes of the original array; GetOffset(i, axis)
+    gives the offset of an index on axis `axis - 1` of GetElement(i) versus axis
+    `axis` of `src`.
+
+    GetOffset(i, src.NumAxes() - 1) will equal the `elem_offset`
+    output by `GetElement(i, &elem_offset)`.
+
+
+    Below, `src` refers to the argument to the constructor.
+      @param [in] i  Element-index i, with 0 <= i <= src.Dim0()
+      @param [in] src_axis  Axis of `src`, with 0 = src_axis < src.NumAxes()
+      @return  Returns the offset, with 0 <= ans <= src.TotSize(src_axis)
+
+  */
+  int32_t GetOffset(int32_t i, int32_t src_axis) {
+    return composite_row_splits_cpu_.Accessor()(src_axis, i);
+  }
+
+  void Init(RaggedShape &src);  // called from constructor, to get around nvcc
+                                // limitations.  Do not call.
+
+ private:
+  // composite_row_splits is of shape (src.NumLayers() + 1, src.Dim0() + 1).
+  // Row 0 contains [ 0, 1, 2, ..  ];
+  // Row 1 contains src.RowSplits(1)
+  // Row 2 contains the row_splits12 = src.RowSplits(2)[src.RowSplits(1)]
+  //    .. etc.
+  // Note: we're making composite_row_splits_ a class member in case we need
+  // it later; otherwise it could be a local in the constructor.
+  Array2<int32_t> composite_row_splits_;
+  Array2<int32_t> composite_row_splits_cpu_;
+
+  // Let num_layers_out = composite_row_splits.Dim0() - 2 == src.NumLayers() -
+  // 1.  The first `num_layers_out` arrays in row_splits_out and row_ids_out
+  // will be populated.
+  //
+  // row_splits_out_[i] contains all the row_splits of layer i of the split
+  // outputs, appended together, of Dim() equal to src.TotSize(i+1) + src.Dim0()
+  // + 1; the extra Dim0() is needed because of the extra final element of each
+  // row_splits vector, plus 1 for an extra final zero that's convenient for the
+  // implementation.
+  Array1<int32_t> row_splits_out_[4];
+  // row_ids_out[i] contains all the row_ids of layer i of the outputs, appended
+  // together, of Dim() equal to src.TotSize(i+2).
+  Array1<int32_t> row_ids_out_[4];
+};
+
+template <typename T>
+class RaggedAxis0Splitter : public RaggedShapeAxis0Splitter {
+ public:
+  explicit RaggedAxis0Splitter(Ragged<T> &src)
+      : RaggedShapeAxis0Splitter(src.shape), values_(src.values) {}
+
+  /*
+     Return sub-part of `src`
+        @param [in] i   Index into axis 0 of `src`, with 0 <= i < src.Dim0().
+        @param [out] elem_offset  If not nullptr, will output to this
+                  location the offset into the `values` array that
+                  the answer's data starts from.  Will satisfy
+                  0 <= elem_offset <= src.NumElements().
+        @return  Returns the sub-part of `src`, with one fewer axis
+                  than `src`.  Is equivalent to calling src.Index(0, i,
+                  elem_offset), but more efficient if you'll do this for most of
+                  the `i`.
+  */
+  Ragged<T> GetElement(int32_t i, int32_t *elem_offset = nullptr) {
+    int32_t temp;
+    if (elem_offset == nullptr) elem_offset = &temp;
+    RaggedShape shape = RaggedShapeAxis0Splitter::GetElement(i, elem_offset);
+    return Ragged<T>(shape, values_.Arange(*elem_offset,
+                                           *elem_offset + shape.NumElements()));
+  }
+
+  // note, GetOffset() from the parent is available.
+ private:
+  Array1<T> values_;
+};
+
+/*
+  Return a sub-range of `src` containing indexes `begin` through `end - 1`
+  along axis `axis` of src.
+      @param [in] src   Source RaggedShape. Must have src.NumAxes() >= 2.
+      @param [in] axis  The axis we'll get ans, must have
+                        0 <= axis < src.NumAxes() - 1.
+      @param [in] begin The first element we'll get along axis `axis`.
+                        Must have 0 <= begin <= end <= src.TotSize(axis).
+      @param [in] end   The one-past-the-last element we'll get along axis
+                       `axis`.
+                       Must have 0 <= begin <= end <= src.TotSize(axis).
+      @param [out] value_range If non-null, will be set to a pair
+                        (val_begin, val_end) and users can get the values
+                        of ans with src.values.Arange(val_begin, val_end).
+      @return   Returns a RaggedShape with NumAxes() == src.NumAxes() - `axis`,
+                it contains element of `src` along axis `axis` from `begin`
+                to `end - 1`.
+ */
+RaggedShape Arange(RaggedShape &src, int32_t axis, int32_t begin, int32_t end,
+                   std::pair<int32_t, int32_t> *value_range = nullptr);
+
+/*
+  Returns a Ragged array which is a sub-range of `src` containing indexes
+  `begin` through `end - 1` along axis `axis` of src. See above version for
+  RaggedShape for the requirements of input parameters.
+ */
+template <typename T>
+Ragged<T> Arange(Ragged<T> &src, int32_t axis, int32_t begin, int32_t end) {
+  std::pair<int32_t, int32_t> value_range;
+  RaggedShape ans_shape = Arange(src.shape, axis, begin, end, &value_range);
+  return Ragged<T>(ans_shape,
+                   src.values.Arange(value_range.first, value_range.second));
+}
+
+/*
+  Append a single element to each sub-array of a ragged matrix (we consider
+  only its last axis).
+     @param [in] src     Source ragged tensor
+     @param [in] suffix  Array containing elements to append (they will
+                         be appended regardless of value, for now).
+                         Must have
+                         `suffix.Dim() == src.TotSize(src.NumAxes() - 2)`
+     @return         Returns ragged tensor with same num-axes as `src`,
+                     and NumElements() equal to src.NumElements() +
+                     suffix.Dim()
+ */
+Ragged<int32_t> AddSuffixToRagged(Ragged<int32_t> &src,
+                                  const Array1<int32_t> &suffix);
+
+/*
+  Prepend a single element to each sub-array of a ragged matrix (we consider
+  only its last axis).
+     @param [in] src     Source ragged tensor
+     @param [in] prefix  Array containing elements to prepend (they will
+                         be prepended regardless of value, for now).
+                         Must have
+                         `prefix.Dim() == src.TotSize(src.NumAxes() - 2)`
+     @return         Returns ragged tensor with same num-axes as `src`,
+                     and NumElements() equal to src.NumElements() +
+                     prefix.Dim()
+ */
+Ragged<int32_t> AddPrefixToRagged(Ragged<int32_t> &src,
+                                  const Array1<int32_t> &prefix);
 /*
   Insert a new axis at position `axis`, with 0 <= axis <= src.NumAxes(), for
   which the only allowed index will be 0 (which is another way of saying: all
@@ -177,12 +415,20 @@ RaggedShape ChangeSublistSize(RaggedShape &src, int32_t size_delta);
 
   Note: you probably shouldn't be using this very often; if you are using
   this, you may be thinking in a PyTorch-y way but you should be relying on
-  things like Eval() with custom lambdas more.  Read algorithms like in
-  compose.cc to understand why.  Also: axis==0 is probably the only really
-  useful case. See more useful notes in comments in the implementation.
+  things like Eval() with custom lambdas more.  Also: axis==0 is probably
+  the only really useful case. See more useful notes in comments in the
+  implementation.
  */
 RaggedShape Unsqueeze(const RaggedShape &src, int32_t axis);
 
+/*
+  Version of Unsqueeze() above, that works for ragged tensors.
+  Note: the opposite of this is not Squeeze(); it is ans.RemoveAxis(axis).
+*/
+template <typename T>
+Ragged<T> Unsqueeze(const Ragged<T> &src, int32_t axis) {
+  return Ragged<T>(Unsqueeze(src.shape, axis), src.values);
+}
 
 /*
   Parallel version of Unsqueeze() that effectively calls Unsqueeze() in parallel
@@ -191,19 +437,21 @@ RaggedShape Unsqueeze(const RaggedShape &src, int32_t axis);
                          array that `src` points to.
       @param [in]  srcs  The array of input RaggedShape, with elements
                          `*(src[0])`, `*(src[1])`, and so on.
-      @param [in] axis  The axis to unsqueeze (see the other version of Unsqueeze()
-                        for explanation).  CAUTION: only supports axis == 0
-                        currently.
+      @param [in] axis  The axis to unsqueeze (see the other version of
+                        Unsqueeze() for explanation).
+                        CAUTION: only supports axis == 0 currently.
       @return       Returns vector of unsqueezed RaggedShape, with
                     `ans.size() == num_srcs.`
  */
 std::vector<RaggedShape> UnsqueezeParallel(int32_t num_srcs, RaggedShape **src,
                                            int32_t axis);
 
-
-/* Remove an axis; if it is not the last axis, this is done by appending lists
+/*
+   Remove an axis; if it is not the last axis, this is done by appending lists
    (effectively the axis is combined with the following axis).  If it is the
-   last axis it is just removed and the number of elements will be affected.
+   last axis it is just removed and the number of elements may be changed.
+   Effectively removes element numbered `axis` from the vector tot_sizes
+   `[ src.TotSize(0), src.TotSize(1), ... src.TotSize(axis - 1) ]`
 
           @param [in] src Ragged shape to remove axis of (`src` is conceptually
                       unchanged by this operation but non-const because row-ids
@@ -213,10 +461,61 @@ std::vector<RaggedShape> UnsqueezeParallel(int32_t num_srcs, RaggedShape **src,
           @param [in] axis  Axis to remove; must satisfy
                             0 <= axis < src.NumAxes()
           @return      Returns the modified shape with one fewer axis; will
-                       satisfy ans.TotSize(axis) == src.TotSize(axis + 1).
+                       satisfy ans.TotSize(axis) == src.TotSize(axis + 1)
                        if axis < src.NumAxes() - 1.
 */
 RaggedShape RemoveAxis(RaggedShape &src, int32_t axis);
+
+/*
+    Return a version of `src` with one axis removed, done by appending
+    lists (this axis is combined with the following axis).  Effectively removes
+    element numbered `axis` from the vector of tot_sizes `[ src.TotSize(0),
+    src.TotSize(1), ... src.TotSize(axis - 1) ]`
+
+    Note *this is conceptually unchanged by this operation but non-const
+    because this->shape's row-ids may need to be generated.
+    This function is defined in ragged_ops_inl.h.
+
+        @param [in] src   Source ragged tensor to modify.
+        @param [in] axis  Axis to remove.  Requires 0 <= axis < NumAxes() - 1.
+
+        @return  Returns the modified ragged tensor, which will share the same
+            `values` and some of the same shape metdata as `*this`.
+  */
+template <typename T>
+Ragged<T> RemoveAxis(Ragged<T> &src, int32_t axis) {
+  return src.RemoveAxis(axis);
+}
+
+/*
+  Returns a `sub-shape` of `src` consisting of one of its RaggedShapeLayer
+  elements, i.e. one of the levels of its shape.  This returned shape
+  will have NumAxes() == 2, but it is the minimal case of a RaggedShape.
+
+    @param [in] src   Source RaggedShape
+    @param [in] layer Layer that is desired, from 0 .. src.NumAxes() - 2.
+                      View this as an index into its Layers() vector.
+ */
+RaggedShape GetLayer(const RaggedShape &src, int32_t layer);
+
+/*
+  This is the inverse of ComposeRaggedShapes(); it splits up a RaggedShape
+  into two pieces such that `top->NumElements() == bottom->Dim0()`.
+
+     @param [in] src   Source RaggedShape
+     @param [in] axis  Axis to split at; must satisfy
+                       0 < axis < src.NumLayers() - 1.  Axis `axis` of
+                       the input will correspond to the last axis of
+                       `top` and axis 0 of `bottom`.
+     @param [out] top   Top layers of the RaggedShape, will have
+                        `top->NumAxes() == axis + 1` at exit.
+     @param [out] bottom Bottom layers of the RaggedShape; will satisfy
+                        `top->NumElements() == bottom->Dim0()` and
+                        `Equal(src, ComposeRaggedShapes(*top, *bottom))`,
+                        ans `bottom.NumAxes() == src.NumAxes() - axis`.
+ */
+void DecomposeRaggedShape(const RaggedShape &src, int32_t axis,
+                          RaggedShape *top, RaggedShape *bottom);
 
 /*
   Returns a CPU array of shape (src[0]->NumAxes() + 1) by (num_srcs + 1), where
@@ -296,6 +595,7 @@ RaggedShape Transpose(RaggedShape &src,
 template <typename T>
 Ragged<T> Transpose(Ragged<T> &src,
                     Array1<int32_t> *value_indexes_out = nullptr) {
+  NVTX_RANGE(K2_FUNC);
   Array1<int32_t> value_indexes;
   RaggedShape ans_shape = Transpose(src.shape, &value_indexes);
   if (value_indexes_out) *value_indexes_out = value_indexes;
@@ -314,18 +614,16 @@ Ragged<T> Transpose(Ragged<T> &src,
       @param [in] num_srcs Number of source shapes to append; require
                            num_srcs > 0.
       @param [in] src      Array of sources to append
+      @param [out] merge_map  If not nullptr, will be set to the merge-map
+                        that tells us for each 0 <= i < ans.NumElements(),
+                        which element of `src` it came from (available
+                        as `merge_map[i] % num_srcs`) and its element-index
+                        within `src[i]` (available as `merge_map[i] / num_srcs`.
+
       @return      Returns the appended RaggedShape.
 */
-RaggedShape Append(int32_t axis, int32_t num_srcs, RaggedShape **src);
-
-/*
-    Gets an array of pointers to the row_splits of `src`, on the same
-    device as `src`.
-       @param [in] src  Source RaggedShape
-       @return        Returns an array of size src.NumAxes() - 1 containing
-                      pointers to the starts of the row_splits vectors.
-*/
-Array1<int32_t *> GetRowSplitsPtr(RaggedShape &src);
+RaggedShape Append(int32_t axis, int32_t num_srcs, RaggedShape **src,
+                   Array1<uint32_t> *merge_map = nullptr);
 
 /*
   Extract meta-info from the shape (this will include populating any row_ids and
@@ -391,6 +689,7 @@ RaggedShape RandomRaggedShape(bool set_row_ids = false,
  */
 RaggedShape SubsampleRaggedShape(RaggedShape &src, Renumbering &renumbering);
 
+
 /*
   Return ragged shape with only a subset of the elements on the last
   and one-before-last axes kept.
@@ -405,15 +704,115 @@ RaggedShape SubsampleRaggedShape(RaggedShape &src,
                                  Renumbering &renumbering_last);
 
 /*
+  Removes empty lists on a particular axis (not last axis) of a RaggedShape,
+  returning the modified shape with those lists removed.
+     @param [in] src_shape   RaggedShape that possibly has empty lists
+                          to be removed
+     @param [in] axis     Axis that is not the last axis of `src_shape`,
+                          i.e. with `axis + 1 < src_shape.NumAxes()`.
+     @param [out] renumbering  If not nullptr, a renumbering object that maps
+                         between old and new indexes on axis `axis` (e.g. if
+                         `axis == 0` would map between idx0's and idx0's; if
+                         `axis == 1`, would map between idx01's and idx01's).
+     @return             Returns modified shape with
+                         ans.NumAxes() == src_shape.NumAxes().
+                         ans.TotSize(axis) may differ from
+                         src_shape.TotSize(axis), but other TotSize() values,
+                         and the numbering on other axes, will remain the same.
+ */
+RaggedShape RemoveEmptyLists(RaggedShape &src_shape, int32_t axis,
+                             Renumbering *renumbering = nullptr);
+
+/*
+  Removes some subset of empty lists on a particular axis (not last axis) of
+  a RaggedShape, returning the modified shape with those lists removed.
+
+     @param [in] src_shape   RaggedShape that possibly has empty lists
+                          to be removed
+     @param [in] axis     Axis that is not the last axis of `src_shape`,
+                          i.e. with `axis + 1 < src_shape.NumAxes()`.
+     @param [in] renumbering  If not nullptr, a renumbering object that maps
+                         between old and new indexes on axis `axis` (e.g. if
+                         `axis == 0` would map between idx0's and idx0's; if
+                         `axis == 1`, would map between idx01's and idx01's).
+                         It is assumed that this renumbering preserves
+                         all lists that are nonempty.
+     @return             Returns modified shape with
+                         ans.NumAxes() == src_shape.NumAxes().
+                         ans.TotSize(axis) may differ from
+                         src_shape.TotSize(axis), but other TotSize() values,
+                         and the numbering on other axes, will remain the same.
+ */
+RaggedShape RemoveSomeEmptyLists(RaggedShape &src_shape, int32_t axis,
+                                 Renumbering &renumbering);
+
+/*
+  Removes empty lists on axis 0 of a RaggedShape, returning the modified shape
+  with those lists removed.  Note: a list containing empty lists is not empty.
+
+     @param [in] src_shape   RaggedShape that possibly has empty lists on its
+                         axis 0
+     @param [out] renumbering  If not nullptr, a renumbering object that maps
+                         between old and new indexes on axis 0, i.e. between
+                         old and new idx0's.
+     @return             Returns modified shape with
+                         ans.NumAxes() == src_shape.NumAxes().
+                         ans.Dim0() may differ from src_shape.Dim0(),
+                         but for axis > 0, we have
+                         `ans.TotSize(axis) == src.TotSize(axis)`.
+*/
+RaggedShape RemoveEmptyListsAxis0(RaggedShape &src_shape,
+                                  Renumbering *renumbering = nullptr);
+
+/*
+  Removes some (but not necessarily all) empty lists on axis 0 of a RaggedShape,
+  returning the modified shape with those lists removed.  Note: a list
+  containing empty lists is not empty. (this is what we mean by the "Simple"
+  part of the name, as it means we only have to deal with one layer).
+
+     @param [in] src_shape   RaggedShape that possibly has empty lists on its
+                         axis 0
+     @param [out] renumbering  If not nullptr, a renumbering object that maps
+                         between old and new indexes on axis 0, i.e. between
+                         old and new idx0's.  The removed lists must be empty.
+
+     @return             Returns modified shape with
+                         ans.NumAxes() == src_shape.NumAxes().
+                         ans.Dim0() may differ from src_shape.Dim0(),
+                         but for axis > 0, we have
+                         `ans.TotSize(axis) == src.TotSize(axis)`.
+ */
+RaggedShape RenumberAxis0Simple(RaggedShape &src_shape,
+                                Renumbering &renumbering);
+
+/*
+  Return ragged array with only a subset of the bottom-level elements kept.
+  Require renumbering.NumOldElems() == src.NumElements().  Note: all
+  dimensions and tot-sizes preceding the final axis will remain the same, which
+  might give rise to empty lists.
+ */
+template <typename T>
+Ragged<T> SubsampleRagged(Ragged<T> &src, Renumbering &renumbering) {
+  return Ragged<T>(SubsampleRaggedShape(src.shape, renumbering),
+                   src.values[renumbering.New2Old()]);
+}
+
+/*
   Stack a list of Ragged arrays to create a Ragged array with one more axis.
   Similar to TF/PyTorch's Stack.  The result will have Dim0 == num_srcs.  All
   the source Ragged arrays' shapes must have the same NumAxes().
 
      @param [in] axis   The new axis whose dimension will equal num_srcs.
-                        CAUTION: only axis == 0 and axis == 1 are
-                        supported right now.
+                        The shapes/dimensions must be the same for all
+                        preceding axes.
      @param [in] num_srcs  The number of `RaggedShape`s in `src`
      @param [in] src       The shapes to be stacked
+     @param [out] merge_map  If not nullptr, will be set to the merge-map
+                       that tells us for each 0 <= i < ans.NumElements(),
+                       which element of `src` it came from (available
+                       as `merge_map[i] % num_srcs`) and its element-index
+                       within `src[i]` (available as `merge_map[i] / num_srcs`.
+
 
      @return  The appended result.
        Assuming as an example that the input had 3 axes:
@@ -423,14 +822,16 @@ RaggedShape SubsampleRaggedShape(RaggedShape &src,
           result[i,j,k,l] = (*src[j])[i,k,l]
  */
 template <typename T>
-Ragged<T> Stack(int32_t axis, int32_t num_srcs, Ragged<T> **src);
+Ragged<T> Stack(int32_t axis, int32_t num_srcs, Ragged<T> **src,
+                Array1<uint32_t> *merge_map = nullptr);
 
 /*
   This version of Stack() has one fewer levels of pointer indirection,
   it is just a wrapper for the version above.
  */
 template <typename T>
-Ragged<T> Stack(int32_t axis, int32_t num_srcs, Ragged<T> *src);
+Ragged<T> Stack(int32_t axis, int32_t num_srcs, Ragged<T> *src,
+                Array1<uint32_t> *merge_map = nullptr);
 
 /*
    Append a list of Ragged<T> to form a single Ragged<T>
@@ -444,17 +845,25 @@ Ragged<T> Stack(int32_t axis, int32_t num_srcs, Ragged<T> *src);
       @param [in] num_srcs Number of source shapes to append; require
                            num_srcs > 0.
       @param [in] src      Array of sources to append
+      @param [out] merge_map  If not nullptr, will be set to the merge-map
+                       that tells us for each 0 <= i < ans.NumElements(),
+                       which element of `src` it came from (available
+                       as `merge_map[i] % num_srcs`) and its element-index
+                       within `src[i]` (available as `merge_map[i] / num_srcs`.
+
       @return      Returns the appended RaggedShape.
 */
 template <typename T>
-Ragged<T> Append(int32_t axis, int32_t num_srcs, Ragged<T> **src);
+Ragged<T> Append(int32_t axis, int32_t num_srcs, Ragged<T> **src,
+                 Array1<uint32_t> *merge_map = nullptr);
 
 /*
   This version of Append() has one fewer levels of pointer indirection,
   it is just a wrapper for the version above.
  */
 template <typename T>
-Ragged<T> Append(int32_t axis, int32_t num_srcs, Ragged<T> *src);
+Ragged<T> Append(int32_t axis, int32_t num_srcs, Ragged<T> *src,
+                 Array1<uint32_t> *merge_map = nullptr);
 
 /*
   Construct a RaggedShape with 2 axes.
@@ -484,9 +893,9 @@ RaggedShape RaggedShape2(Array1<int32_t> *row_splits, Array1<int32_t> *row_ids,
 
 /*
   This is a general method of creating higher-dimensional ragged shapes.
-     @param [in] a   RaggedShape describing the top level (first indexes)
+     @param [in] a   RaggedShape describing the top/first layers
                      of the returned shape
-     @param [in] b   RaggedShape describing the bottom level (later
+     @param [in] b   RaggedShape describing the bottom layers (later
                      indexes) of the returned shape.  We require
                      a.NumElements() == b.Dim0().
      @return     Returns the combined ragged shape.  Its number of axes
@@ -494,6 +903,20 @@ RaggedShape RaggedShape2(Array1<int32_t> *row_splits, Array1<int32_t> *row_ids,
                  axis of a and the first axis of b are combined).
  */
 RaggedShape ComposeRaggedShapes(const RaggedShape &a, const RaggedShape &b);
+
+/*  3-arg version of ComposeRaggedShapes,
+       @param [in] a  RaggedShape describing the top/first layers
+                     of the returned shape
+       @param [in] b  RaggedShape describing the intermediate layers
+                     of the returned shape, require b.Dim0() == a.NumElements()
+       @param [in] c  RaggedShape describing the lower/last layers
+                     of the returned shape, require c.Dim0() == b.NumElements()
+       @return Returns the combined ragged shape; its num-layers (==num-axes -
+   1) will be the total of the num-layers of the sources.  Will share memory
+   with the inputs.
+*/
+RaggedShape ComposeRaggedShapes3(const RaggedShape &a, const RaggedShape &b,
+                                 const RaggedShape &c);
 
 /*
   Construct a RaggedShape with 3 axes.  For N=1 and 2 respectively:
@@ -513,6 +936,14 @@ RaggedShape RaggedShape3(Array1<int32_t> *row_splits1,
                          Array1<int32_t> *row_splits2,
                          Array1<int32_t> *row_ids2, int32_t cached_tot_size2);
 
+/* See documentation of RaggedShape3, this is an obvious extension. */
+RaggedShape RaggedShape4(Array1<int32_t> *row_splits1,
+                         Array1<int32_t> *row_ids1, int32_t cached_tot_size1,
+                         Array1<int32_t> *row_splits2,
+                         Array1<int32_t> *row_ids2, int32_t cached_tot_size2,
+                         Array1<int32_t> *row_splits3,
+                         Array1<int32_t> *row_ids3, int32_t cached_tot_size3);
+
 /*
   Returns a RaggedShape with 2 axes, with Dim0() == 1 and
   TotSize(1) = num_elems.
@@ -520,7 +951,7 @@ RaggedShape RaggedShape3(Array1<int32_t> *row_splits1,
 RaggedShape TrivialShape(ContextPtr &c, int32_t num_elems);
 
 /*
-  Returns a RaggedShape with Dim0() == dim0 and TotSize1() == dim0 * dim1.
+  Returns a RaggedShape with Dim0() == dim0 and TotSize(1) == dim0 * dim1.
   Require dim0 >= 0 and dim1 >= 0.
  */
 RaggedShape RegularRaggedShape(ContextPtr &c, int32_t dim0, int32_t dim1);
@@ -545,8 +976,8 @@ RaggedShape RegularRaggedShape(ContextPtr &c, int32_t dim0, int32_t dim1);
                        filled in, and its cached_tot_size elements
                        set.
  */
-RaggedShape RaggedShapeFromTotSizes(ContextPtr &c, int32_t num_axes,
-                                    int32_t *tot_sizes);
+RaggedShape RaggedShapeFromTotSizes(ContextPtr c, int32_t num_axes,
+                                    const int32_t *tot_sizes);
 
 /*
   Returns an empty ragged shape with the specified number of axes.
@@ -588,10 +1019,9 @@ Ragged<T> RandomRagged(T min_value = static_cast<T>(0),
 
      @param [inout]   The input array to be sorted.
                       CAUTION: it is sorted in-place.
-     @param [out]     The indexes mapping from the sorted
-                      array to the input array. If not NULL,
-                      the caller has to pre-allocate memory for
-                      it on the same device as `src`.
+     @param [out]     The indexes mapping from the sorted array to the original
+                      input array. If not NULL, the caller has to pre-allocate
+                      memory for it on the same device as `src`.
  */
 template <typename T, typename Op = LessThan<T>>
 void SortSublists(Ragged<T> *src, Array1<int32_t> *order = nullptr);
@@ -675,46 +1105,69 @@ Ragged<int32_t> GetCountsPartitioned(Ragged<int32_t> &src,
 
 /* Return true if the objects represent the same ragged shape.
    They must be on the same device. */
-bool Equal(RaggedShape &a, RaggedShape &b);
+bool Equal(const RaggedShape &a, const RaggedShape &b);
 
 /* Return true if the objects represent the same ragged array with the same
    values.  They must be on the same device. */
 template <typename T>
-bool Equal(Ragged<T> &a, Ragged<T> &b) {
+bool Equal(const Ragged<T> &a, const Ragged<T> &b) {
   return Equal(a.shape, b.shape) && Equal(a.values, b.values);
 }
 
 /*
-  Indexing operation on ragged tensor's shape (indexing axis 0 with
-  a provided array of indexes)
+  Indexing operation on ragged tensor's shape.
 
       @param [in] src      Source ragged tensor to index
+      @param [in] axis     Axis to index `src` on, must satisfy
+                           0 <= src < src.NumAxes().
       @param [in] indexes  Array of indexes, which will be interpreted
-                           as indexes into axis 0 of `src`,
-                           i.e. with 0 <= indexes[i] < src.Dim0().
-      @param [out]         If non-null, this will be set to a new
+                           as indexes into axis `axis` of `src`,
+                           i.e. with 0 <= indexes[i] < src.TotSize(axis).
+
+                           As a special case, if axis == 0 we also support
+                           -1 as an index, which will result in the
+                           empty list (as if it were the index into
+                           a position in `src` that had an empty list
+                           at that point).
+
+                           CAUTION: these are currently not allowed to
+                           change the order on axes less than `axis`,
+                           i.e. if axis > 0, we require.
+                           `IsMonotonic(src.RowIds(axis)[indexes])`.
+
+      @param [out]         If non-null, this will be set to an
                            Array1<int32_t> containing the indexes
                            into the elements of an array with shape
                            'src', that an array with shape 'ans'
-                           would have.  As in:
+                           would have (a new2old map).  As in:
                            `ans_values = src_values[*elem_indexes]`.
+                           If `axis == src.NumAxes()-1`, this will
+                           be aliased with `indexes`.
 
       @return Returns a ragged shape with
               `ans.NumAxes() == src.NumAxes()`
-              and `ans.Dim0() == indexes.Dim()`.
+              and `ans.TotSize(axis) == indexes.Dim()`.
+
+  NOET: if you are looking for something like ReorderRaggedShape(),
+  RenumberRaggedShape() or the like, this may be what you want.
+  (Reordering/renumbering is a special case of indexing)
 */
-RaggedShape Index(RaggedShape &src, const Array1<int32_t> &indexes,
+RaggedShape Index(RaggedShape &src, int32_t axis,
+                  const Array1<int32_t> &indexes,
                   Array1<int32_t> *elem_indexes = nullptr);
 
 /*
-  Indexing operation on ragged tensor, returns src[indexes], where
-  the elements of `indexes` are interpreted as indexes into axis 0
-  of `src`.
+  Index ragged tensor with array, return ragged tensor.
 
       @param [in] src      Source ragged tensor to index
+      @param [in] axis     Axis to index `src` on
       @param [in] indexes  Array of indexes, which will be interpreted
-                           as indexes into axis 0 of `src`,
-                           i.e. with 0 <= indexes[i] < src.Dim0().
+                           as indexes into axis `axis` of `src`,
+                           i.e. with 0 <= indexes[i] < src.TotSize(axis).
+                           CAUTION: these are currently not allowed to
+                           change the order on axes less than `axis`,
+                           i.e. if axis > 0, we require
+                           `IsMonotonic(src.RowIds(axis)[indexes])`.
       @param [out]         If non-null, this will be set to a new
                            Array1<int32_t> containing the indexes
                            into src.values that ans.values has,
@@ -728,15 +1181,218 @@ RaggedShape Index(RaggedShape &src, const Array1<int32_t> &indexes,
 
 */
 template <typename T>
-Ragged<T> Index(Ragged<T> &src, const Array1<int32_t> &indexes,
+Ragged<T> Index(Ragged<T> &src, int32_t axis, const Array1<int32_t> &indexes,
                 Array1<int32_t> *value_indexes_out = nullptr) {
   Array1<int32_t> value_indexes;
-  RaggedShape ans_shape = Index(src.shape, indexes, &value_indexes);
+  RaggedShape ans_shape = Index(src.shape, axis, indexes, &value_indexes);
   Ragged<T> ans(ans_shape, src.values[value_indexes]);
   if (value_indexes_out != nullptr)
     *value_indexes_out = std::move(value_indexes);
   return ans;
 }
+
+/*
+   Merge a list of RaggedShape by combining their top-level lists (those
+   obtained by indexing on their axis 0) with the provided merge_map
+   that indicates the order to take items in.
+
+      @param [in] num_srcs Number of source shapes to append; require
+                           num_srcs > 0.
+      @param [in] src      Array of sources to append; must have compatible
+                           contexts and the same number of axes.
+      @param [in] merge_map   Merge map (probably obtained from some previous
+                         ragged operation) that dictates the order in which
+                         to combine elements.  `merge_map.Dim()` must equal
+                         the sum of `src[i]->Dim0()` for all 0 <= i < num_srcs.
+                         If `merge_map[i] == m` then at position i on axis 0 of
+                         the output we take element `m / num_srcs` on axis 0 of
+                         the source numbered `m % num_srcs`.
+      @param [out] merge_map_out  If not nullptr, will be set to the merge-map
+                        that tells us for each 0 <= i < ans.NumElements(),
+                        which element of `src` it came from (available
+                        as `merge_map[i] % num_srcs`) and its element-index
+                        within `src[i]` (available as `merge_map[i] / num_srcs`.
+
+      @return       Returns the appended RaggedShape.  Will have the same
+                    number of axes as the sources.
+*/
+RaggedShape Merge(int32_t num_srcs, RaggedShape **src,
+                  const Array1<uint32_t> &merge_map,
+                  Array1<uint32_t> *merge_map_out = nullptr);
+
+/*  Version of Merge that works on Ragged objects; see documentation for Merge()
+    above. */
+template <typename T>
+Ragged<T> Merge(int32_t num_srcs, Ragged<T> **src,
+                const Array1<uint32_t> &merge_map,
+                Array1<uint32_t> *merge_map_out = nullptr);
+
+/*
+  Returns a ragged tensor after removing all 'values' that were <= a provided
+  cutoff.  Leaves all layers of the shape except for the last one unaffected.
+  Equivalent to SubsampleRaggedShape with a numbering given by (src.values[i] <=
+  cutoff).
+ */
+template <typename T>
+Ragged<T> RemoveValuesLeq(Ragged<T> &src, T cutoff);
+
+/*
+  Returns a ragged tensor after removing all 'values' that equal a provided
+  target.  Leaves all layers of the shape except for the last one unaffected.
+  Equivalent to SubsampleRaggedShape with a numbering given by (src.values[i] ==
+  target).
+*/
+template <typename T>
+Ragged<T> RemoveValuesEq(Ragged<T> &src, T target);
+
+/*
+   Index array with ragged tensor.
+       @param [in] src   Source array, to be indexed
+       @param [in] indexes   Indexes into source array; the values must
+                          satisfy `0 <= indexes.values[i] < src.Dim()`.
+       @return   Returns ragged tensor with shape `indexes.shape`
+                 and values `src[indexes.values]`.
+*/
+template <typename T>
+Ragged<T> Index(Array1<T> &src, Ragged<int32_t> &indexes) {
+  return Ragged<T>(indexes.shape, src[indexes.values]);
+}
+
+/*
+   Index ragged tensor with ragged tensor.
+       @param [in] src   Source tensor, to be indexed
+       @param [in] indexes   Indexes into source array; the values must
+                          satisfy `0 <= indexes.values[i] < src.Dim0()`.
+       @param [in] remove_axis  If remove_axis == true,
+             then we remove the last-but-one axis, which has the effect
+             of appending lists, e.g.
+              `Index( [[ 10 11 ] [ 12 13 ]],  [[ 0 1 ]])` would
+             give us `[[ 10 11 12 13 ]]`.  If remove_axis == false
+             the answer will have at least 3 axes, e.g.
+             `[[[ 10 11 ] [ 12 13 ]]]` in this case.
+
+       @return  Returns indexed tensor.
+
+    CAUTION: the validity of the indexes is not checked, which may
+    result in segfault or undefined values.
+*/
+template <typename T>
+Ragged<T> Index(Ragged<T> &src, Ragged<int32_t> &indexes, bool remove_axis);
+
+/*
+  Returns a vector that indexes `shape` to put its rows in decreasing order of
+  length.  I.e. so that `Index(shape, GetDecreasingSizeOrder(shape))` will
+  give rows of decreasing length.
+ */
+Array1<int32_t> GetDecreasingSizeOrder(RaggedShape &shape);
+
+/*
+  Given a list of shapes with 2 axes and the same Dim0(), return the
+  smallest shape that 'covers' all of them, i.e. size the i'th sub-list of the
+  answer is the maximum of the sizes of the i'th sub-list of `srcs`
+    @param [in] num_srcs  Number of source shapes; must have 2 axes and
+                          `Dim0()` all equal
+    @param [in] srcs      Array of input shapes; inputs are `*(srcs[0])`,
+                          `*(srcs[1])` ...
+    @return      Returns shape with the same Dim0() as all the `srcs` and
+                 sub-list sizes equal to the maximum of those of the sources.
+*/
+RaggedShape CoveringShape(int32_t num_srcs, RaggedShape **srcs);
+
+/*
+   Returns an arc_map that says, for each element of `covering`, the
+   corresponding element of `src`, or -1 if there was no such element.
+    @param [in] src   Shape that was likely an input to `CoveringShape`,
+                      must have 2 axes.
+    @param [in] covering  Shape with 2 axes,
+                     `covering.Dim0()==src.Dim0()`, and sub-list sizes
+                     not less than the corresponding sub-list sizes of
+                     `src`.
+    @return  Returns an array with `Dim() == covering.NumElements()`,
+             containing, for each element of `covering`, either the
+             corresponding element of `src` or -1 if this was not
+             applicable.  E.g.  if src == [ [ x x ] [ x ] ] and
+             covering == [ [ x x x ] [x] ], would return [ 0 1 -1 2 ].
+*/
+Array1<int32_t> CoveringShapeForwardMap(RaggedShape &src,
+                                        RaggedShape &covering);
+
+/*
+  Computes a hash-function of the bottom-level lists in `src`
+  (i.e. only uses the final layer of `src`).
+
+    @param [in] src   Ragged tensor of int32_t for which
+                 we want hashes of its final lists.
+    @return      Returns an array of int32_t or int64_t with
+            `ans.Dim() == src.TotSize(src.NumAxes() - 2)`.
+            If two lists in `src` were the same, the corresponding
+            hash values will be the same.
+
+   CAUTION: T must be int32_t or int64_t, and the template argument
+   cannot be deduced so must be supplied, e.g.
+     ComputeHash<int64_t>(src);
+  */
+template <typename T>
+Array1<T> ComputeHash(Ragged<int32_t> &src);
+
+/*
+  If `src` has two axes, this will return the unique sub-lists (in a possibly
+  different order, but without repeats).  If `src` has 3 axes, it will
+  do the above but separately for each index on axis 0; if more than 3 axes,
+  the earliest axes will be ignored.
+
+     @param [in] src  Source ragged tensor
+     @param [out] num_repeats  If not NULL, it will contain the number of
+                       repeats (i.e., multiplicity) of each output sequence.
+                       The caller does not need to pre-allocate it. It is
+                       allocated inside the function.
+     @param [out] new2old_indexes
+                       If not NULL, on return new2old_indexes[i] contains
+                       the original input sublist for the i-th output sublist.
+                       If `src` has 2 axes, this array contains `src_idx0`;
+                       if `src` has 3 axes, this array contains `src_idx01`.
+                       CAUTION: For repeated sublists, only one of them is kept.
+                       The choice of which one to keep is **deterministic** and
+                       is an implementation detail.
+
+     @return   Returns a tensor with the same number of axes as `src` and
+            possibly fewer elements due to removing repeated sequences on the
+            last axis (and with the last-but-one indexes possibly in a different
+            order).
+
+  CAUTION: It does not completely guarantee that all unique sequences will
+  be present in the output, as it relies on a hash and ignores collisions.
+  If several sequences have the same hash, only one of them is kept, even
+  if the actual content in the sequence is different.
+
+  CAUTION: Even if there are no repeated sequences, the output may be different
+  from `src`. That is, `new2old_indexes` may NOT be an identity map even if
+  nothing was removed.
+ */
+Ragged<int32_t> UniqueSequences(Ragged<int32_t> &src,
+                                Ragged<int32_t> *num_repeats = nullptr,
+                                Array1<int32_t> *new2old_indexes = nullptr);
+
+/* Compute exclusive sum per sub-list.
+ *
+ * @param [in] src  The input ragged tensor. The exclusive sum is computed
+ *                  for the last axis. CAUTION: The last entry of every sublist
+ *                  does not contribute to the final sum.
+ * @param [out] dst The dest array. It satisfies dst.Dim() == src.NumElements().
+ *                  Supports `dst == &src.values`.
+ */
+template <typename T>
+void SegmentedExclusiveSum(Ragged<T> &src, Array1<T> *dst);
+
+/*
+  Construct a Ragged with 2 axes.
+    @param [in] vecs  vecs.size() is the number of rows of the returned ans,
+                      i.e. ans.Dim0() == vecs.sizes(), and vecs[i] contains
+                      the elments for row i in ans.
+    @return   Returns the corresponding ragged array, with a CPU context.
+*/
+template <typename T>
+Ragged<T> CreateRagged2(const std::vector<std::vector<T>> &vecs);
 
 }  // namespace k2
 

@@ -13,7 +13,7 @@ cmake_minimum_required(VERSION 3.8 FATAL_ERROR)
 
 project(k2 CUDA CXX)
 
-set(K2_VERSION "0.1.3")
+set(K2_VERSION "0.3.3")
 
 # ----------------- Supported build types for K2 project -----------------
 set(ALLOWABLE_BUILD_TYPES Debug Release RelWithDebInfo MinSizeRel)
@@ -39,8 +39,15 @@ list(PREPEND CMAKE_MODULE_PATH CMAKE_BINARY_DIR "${CMAKE_SOURCE_DIR}/build")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(BUILD_SHARED_LIBS "Whether to build shared or static lib" ON)
-option(USE_PYTORCH "Whether to build with PyTorch" ON)
+option(K2_USE_PYTORCH "Whether to build with PyTorch" ON)
 option(K2_ENABLE_NVTX "Whether to build with the NVTX library" ON)
+option(K2_ENABLE_BENCHMARK "Whether to enable benchmark" ON)
+
+if(NOT K2_USE_PYTORCH)
+  message(FATAL_ERROR "\
+    Please set K2_USE_PYTORCH to ON.
+    Support for other frameworks will be added later")
+endif()
 
 # To consist with TorchConfig.cmake from pip
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=0")
@@ -61,6 +68,7 @@ execute_process(COMMAND
     OUTPUT_VARIABLE K2_OS
     OUTPUT_STRIP_TRAILING_WHITESPACE
     )
+string(REGEX REPLACE "^\"+|\"+$" "" K2_OS "${K2_OS}")
 message(STATUS "K2_OS: ${K2_OS}")
 
 find_package(Git REQUIRED)
@@ -81,6 +89,15 @@ include(CheckIncludeFileCXX)
 check_include_file_cxx(cxxabi.h K2_HAVE_CXXABI_H)
 check_include_file_cxx(execinfo.h K2_HAVE_EXECINFO_H)
 
+include(CheckCXXCompilerFlag)
+check_cxx_compiler_flag("-std=c++14" K2_COMPILER_SUPPORTS_CXX14)
+if(NOT K2_COMPILER_SUPPORTS_CXX14)
+  message(FATAL_ERROR "
+    k2 requires a compiler supporting at least C++14.
+    If you are using GCC, please upgrade it to at least version 5.0.
+    If you are using Clang, please upgrade it to at least version 3.4.")
+endif()
+
 set(CMAKE_CXX_STANDARD 14 CACHE STRING "The C++ version to be used.")
 set(CUDAToolkit_LIBRARY_DIR "" CACHE STRING "The cudatoolkit library directory.")
 set(CUDAToolkit_INCLUDE_DIRS "" CACHE STRING "The cudatoolkit include directory.")
@@ -97,6 +114,14 @@ set(CMAKE_CUDA_ARCHITECTURES 61)
 set(CMAKE_CUDA_FLAGS "${CMAKE_CXX_FLAGS} ${CMAKE_CUDA_FLAGS} --expt-extended-lambda ")
 set(CMAKE_CUDA_STANDARD ${CMAKE_CXX_STANDARD})
 
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/Modules)
+find_package(Valgrind)
+if(Valgrind_FOUND)
+  find_program(MEMORYCHECK_COMMAND NAMES ${Valgrind_EXECUTABLE})
+  set(MEMORYCHECK_COMMAND_OPTIONS "--suppressions=${CMAKE_SOURCE_DIR}/scripts/valgrind.supp --leak-check=full")
+  include(Dart)
+  message(STATUS "To check memory, run `ctest -R <NAME> -D ExperimentalMemCheck`")
+endif()
 enable_testing()
 
 # Find python
@@ -106,14 +131,19 @@ set(PYTHON_EXECUTABLE ${Python3_EXECUTABLE})
 message(STATUS "Set PYTHON_EXECUTABLE = ${Python3_EXECUTABLE}")
 
 # Find c++ deps
-if(USE_PYTORCH)
+if(K2_USE_PYTORCH)
   add_definitions(-DK2_USE_PYTORCH)
   set(Torch_DIR "${Python3_SITELIB}/torch/share/cmake/Torch")
   find_package(Torch REQUIRED)
 endif()
 find_package(pybind11 REQUIRED)
+if(CUDA_VERSION VERSION_LESS 11.0)
+  # CUB is included in CUDA toolkit 11.0 and above
 find_package(cub REQUIRED)
+endif()
+
 find_package(moderngpu REQUIRED)
 find_package(GTest REQUIRED)
 
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --compiler-options -Wall --compiler-options -Wno-unknown-pragmas")
 add_subdirectory(k2)

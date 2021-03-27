@@ -1,3 +1,4 @@
+<img src="https://raw.githubusercontent.com/sequeender/k2/main/docs/source/_static/logo.png" width=376>
 
 # k2
 

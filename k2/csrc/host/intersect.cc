@@ -1,11 +1,6 @@
 /**
- * @brief
- * intersect
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Haowen Qiu)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -20,6 +15,8 @@
 #include "k2/csrc/host/fsa.h"
 #include "k2/csrc/host/properties.h"
 #include "k2/csrc/host/util.h"
+#include "k2/csrc/macros.h"
+#include "k2/csrc/nvtx.h"
 
 namespace {
 
@@ -42,6 +39,7 @@ static inline int32_t InsertIntersectionState(
 namespace k2host {
 
 void Intersection::GetSizes(Array2Size<int32_t> *fsa_size) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(fsa_size, nullptr);
   fsa_size->size1 = fsa_size->size2 = 0;
   status_ = true;
@@ -51,12 +49,18 @@ void Intersection::GetSizes(Array2Size<int32_t> *fsa_size) {
   arc_map_b_.clear();
 
   if (IsEmpty(a_) || IsEmpty(b_)) return;
-  if (!IsArcSorted(a_) || !IsArcSorted(b_)) {
-    K2_LOG(WARNING) << "One of the inputs is not arc-sorted";
-    if (!IsArcSorted(a_)) K2_LOG(INFO) << "Not arc-sorted: " << a_;
-    if (!IsArcSorted(b_)) K2_LOG(INFO) << "Not arc-sorted: " << b_;
-    status_ = false;
-    return;
+  if (check_properties_) {
+    if (!IsArcSorted(a_)) {
+      K2_LOG(INFO) << "Not arc-sorted: " << a_;
+      status_ = false;
+      return;
+    }
+
+    if (!IsArcSorted(b_)) {
+      K2_LOG(INFO) << "Not arc-sorted: " << b_;
+      status_ = false;
+      return;
+    }
   }
 
   int32_t final_state_a = a_.FinalState();
@@ -174,6 +178,7 @@ void Intersection::GetSizes(Array2Size<int32_t> *fsa_size) {
 
 bool Intersection::GetOutput(Fsa *c, int32_t *arc_map_a /*= nullptr*/,
                              int32_t *arc_map_b /*= nullptr*/) {
+  NVTX_RANGE(K2_FUNC);
   if (c->size1 == 0 && c->size2 == 0) {
     c->indexes[0] = 0;
     return status_;

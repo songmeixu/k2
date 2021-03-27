@@ -6,7 +6,7 @@
 #
 # (1)
 #    pip install wheel twine
-#    sudo apt-get install chrpath
+#    sudo apt-get install chrpath # Skip it if you don't have sudo permission
 #
 # (2)
 #    cd /path/to/k2
@@ -34,10 +34,6 @@
 #
 # (6) Done.
 
-if ! command -v chrpath > /dev/null 2>&1; then
-  echo "Please install chrpath  first"
-  exit 1
-fi
 
 cur_dir=$(cd $(dirname $BASH_SOURCE) && pwd)
 k2_dir=$(cd $cur_dir/.. && pwd)
@@ -57,18 +53,26 @@ fi
 
 mkdir -p .temp_lib
 
-for libname in $libnames; do
-  mv $build_dir/lib/lib*test*.so .temp_lib
-done
+mv $build_dir/lib/lib*test*.so .temp_lib
+
+# save the generated libs as we want to restore their RPATH
+mkdir -p $build_dir/.lib-bak
+
+cp -v $build_dir/lib/*.so $build_dir/.lib-bak
 
 for lib in $build_dir/lib/*.so; do
-  # remove RPATH information
-  strip $lib
-  chrpath -r '$ORIGIN' $lib
+  #strip $lib
+  if command -v chrpath > /dev/null 2>&1; then
+    # remove RPATH information
+    chrpath -r '$ORIGIN' $lib
+  fi
 done
 
 python3 setup.py bdist_wheel
 
-for libname in $libnames; do
-  mv .temp_lib/lib*test*.so $build_dir/lib/
-done
+mv $build_dir/.lib-bak/*.so $build_dir/lib/
+
+mv .temp_lib/lib*test*.so $build_dir/lib/
+
+rm -rfv $build_dir/.lib-bak
+rm -rf $build_dir/lib/k2

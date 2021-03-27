@@ -1,12 +1,8 @@
 /**
- * @brief
- * context
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Daniel Povey
- *                                                   Haowen Qiu)
+ *                                                   Haowen Qiu
+ *                                                   Fangjun Kuang)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -15,15 +11,23 @@
 
 #include <algorithm>
 #include <cassert>
+#include <deque>
 #include <map>
 #include <memory>
+#include <mutex>  // NOLINT
 #include <ostream>
 #include <type_traits>
 #include <vector>
 
 #include "k2/csrc/log.h"
+#include "k2/csrc/nvtx.h"
+#include "k2/csrc/semaphore.h"
 
 namespace k2 {
+
+// Maximum number of GPUs supported by k2
+// You can change it to any positive number as you like.
+constexpr int32_t kMaxNumGpus = 16;
 
 enum class DeviceType {
   kUnk,
@@ -77,14 +81,6 @@ class Context : public std::enable_shared_from_this<Context> {
 
   // note: shared_from_this(), which returns a std::shared_ptr<Context>, is
   // public, inherited from std::enable_shared_from_this<Context>.
-
-  // Returns a (CPU) context that will allocate pinned memory.  (This is CPU
-  // memory that's pinned for faster GPU memory transfers).  May or may not
-  // return the same value as ::k2::GetCpuContext()... this is so, for instance,
-  // if you have a GPU PyTorch context you can get a CPU PyTorch context.
-  // NOTE: for now this won't do anything, we can do without pinned memory
-  // for the time being.
-  virtual ContextPtr GetPinnedContext() = 0;
 
   // Returns kCuda if this device is a CUDA device, or kCpu if it's the CPU.
   virtual DeviceType GetDeviceType() const = 0;
@@ -143,42 +139,32 @@ class Context : public std::enable_shared_from_this<Context> {
     something more fine-grained.)
    */
   virtual void Sync() const {}
+
+  /* Copy data between contexts.
+
+     - For copying from host to host, it uses memcpy. We assume that src and dst
+       do not overlap.
+
+     - For copying from host to device, it allocates a block of pinned memory as
+       an intermediate buffer. The data is first copied to the buffer
+       using memcpy and then it is copied from the buffer to the device
+       using cudaMemcpyAsync.
+
+     - For copying from device to device, it uses cudaMemcpyAsync.
+
+     - For copying from device to host, it uses cudaMemcpy.
+
+     @param [in]   num_bytes  Number of bytes to be copied.
+     @param [in]   src   The src pointer. It has to point to a memory block
+                         allocated by `this` context.
+     @param [in]   dst_context  The context of `dst` from which its memory
+                                 gets allocated.
+     @param [in]   dst   The dst pointer. It has to point to a memory block
+                         allocated by `dst_context`.
+   */
+  virtual void CopyDataTo(size_t num_bytes, const void *src,
+                          ContextPtr dst_context, void *dst) = 0;
 };
-
-// Note currently we just support single GPU device, but finally we may need to
-// handle different GPU devices on multiple machines, that's also the reason
-// that we pass `Context` instead of `DeviceType` as the input parameter here.
-inline cudaMemcpyKind GetMemoryCopyKind(const Context &src,
-                                        const Context &dst) {
-  if (src.GetDeviceType() == kCpu && dst.GetDeviceType() == kCpu) {
-    return cudaMemcpyHostToHost;
-  } else if (src.GetDeviceType() == kCpu && dst.GetDeviceType() == kCuda) {
-    return cudaMemcpyHostToDevice;
-  } else if (src.GetDeviceType() == kCuda && dst.GetDeviceType() == kCpu) {
-    return cudaMemcpyDeviceToHost;
-  } else if (src.GetDeviceType() == kCuda && dst.GetDeviceType() == kCuda) {
-    return cudaMemcpyDeviceToDevice;
-  } else {
-    K2_LOG(FATAL) << "Unsupported Context";
-    return cudaMemcpyDefault;
-  }
-}
-
-// if you know kind != cudaMemcpyDeviceToDevice, you can pass in nullptr
-// for `context`.
-inline void MemoryCopy(void *dst, const void *src, std::size_t count,
-                       cudaMemcpyKind kind, Context *context) {
-  cudaError_t ret;
-  if (kind == cudaMemcpyHostToHost) {
-    memcpy(dst, src, count);
-    return;
-  } else if (kind != cudaMemcpyDeviceToDevice) {
-    ret = cudaMemcpy(dst, src, count, kind);
-  } else {
-    ret = cudaMemcpyAsync(dst, src, count, kind, context->GetCudaStream());
-  }
-  K2_CHECK_CUDA_ERROR(ret);
-}
 
 /*
   NOTE: let's leave this for later, this won't be needed initially.
@@ -290,6 +276,7 @@ struct Region : public std::enable_shared_from_this<Region> {
                          larger of double the current size, or
                          the next power of 2 greater than `new_bytes_used`). */
   void Extend(size_t new_bytes_used) {
+    NVTX_RANGE(K2_FUNC);
     if (new_bytes_used <= bytes_used) return;
     if (num_bytes < new_bytes_used) {  // reallocate and copy
       size_t new_size = std::max<size_t>(num_bytes * 2, new_bytes_used);
@@ -299,8 +286,7 @@ struct Region : public std::enable_shared_from_this<Region> {
       new_size = i;  // Round up `new_size` to a power of 2.
       void *new_deleter_context;
       void *new_data = context->Allocate(new_size, &new_deleter_context);
-      cudaMemcpyKind kind = GetMemoryCopyKind(*context, *context);
-      MemoryCopy(new_data, data, bytes_used, kind, context.get());
+      context->CopyDataTo(bytes_used, data, context, new_data);
       context->Deallocate(data, deleter_context);
       data = new_data;
       deleter_context = new_deleter_context;
@@ -324,10 +310,27 @@ ContextPtr GetCpuContext();
 // for testing purposes without an external neural-network toolkit.  If you want
 // to use (say) PyTorch's memory manager, you should use a Context passed in
 // from PyTorch
+//
+// CAUTION: If there are no CUDA capable GPUs, it returns a CPU context!
 ContextPtr GetCudaContext(int32_t gpu_id = -1);
 
-// Returns a (CPU) context that will allocate pinned memory.
+/* Returns a (CPU) context that will allocate pinned memory.  (This is CPU
+   memory that's pinned for faster GPU memory transfers).  May or may not
+   return the same value as ::k2::GetCpuContext()... this is so, for instance,
+   if you have a GPU PyTorch context you can get a CPU PyTorch context.
+
+   CAUTION: If there are no CUDA capable GPUs, it returns a CPU context!
+ */
 ContextPtr GetPinnedContext();
+
+/* Return a (CPU) context that will allocate pinned memory if device_type
+   is kCuda. It is equivalent to GetCpuContext() if device_type is kCpu.
+
+   @param [in] device_type  If device_type is kCpu, it is equivalent
+                            to `GetCpuContext()`. If device_type is kCuda,
+                            it is equivalent to `GetPinnedContext()`.
+*/
+ContextPtr GetContextForTransfer(DeviceType device_type);
 
 /**
    Allocate a new Region.
@@ -343,7 +346,7 @@ ContextPtr GetPinnedContext();
                           region will have bytes_used == num_bytes; if the user
                           wants to change this they can do it afterward.
 */
-RegionPtr NewRegion(ContextPtr &context, std::size_t num_bytes);
+RegionPtr NewRegion(ContextPtr context, std::size_t num_bytes);
 
 /*
   Convenience wrapper for NewRegion() that takes the context from a provided
@@ -362,7 +365,10 @@ inline DeviceType DeviceOf(const T &t) {
 
 // This is for use by ParallelRunner and Context.  Users probably should not
 // interact with this directly.  The idea is that the Context object will call
-// this to possibly override its default thread. The
+// this to possibly override its default thread.  The user would
+// create a new stream by calling ParallelRunner's NewStream() method, and
+// do `With w(stream);` which calls Push(stream), and later Pop(stream) when it
+// goes out of scope.
 class CudaStreamOverride {
  public:
   inline cudaStream_t OverrideStream(cudaStream_t stream) {
@@ -371,18 +377,14 @@ class CudaStreamOverride {
     else
       return stream;
   }
-  void Push(cudaStream_t stream) {
-    stack_.push_back(stream);
-    stream_override_ = stream;
-  }
-  void Pop(cudaStream_t stream) {
-    K2_DCHECK(!stack_.empty());
-    K2_DCHECK_EQ(stack_.back(), stream);
-    stack_.pop_back();
-  }
+
+  void Push(cudaStream_t stream);
+
+  void Pop(cudaStream_t stream);
 
   CudaStreamOverride() : stream_override_(0x0) {}
 
+ private:
   cudaStream_t stream_override_;
   std::vector<cudaStream_t> stack_;
 };
@@ -398,6 +400,32 @@ class With {
 
  private:
   cudaStream_t stream_;
+};
+
+/*
+  Our class Semaphore is a slight extension of std::counting_semaphore that also
+  takes care of stream synchronization.  The projected use-case is when two
+  threads (possibly with different CUDA streams, if we are using CUDA) have a
+  producer-consumer relationship, such that one is waiting for the other.
+  The projected use is:
+    - Construct semaphore
+    - Producing thread (maybe repeatedly) calls semaphore.Signal(ctx);
+    - Consuming thread (maybe repeatedly) calls semaphore.Wait(ctx);
+ */
+class Semaphore {
+ public:
+  Semaphore() : device_type_(kUnk), semaphore_(0) {}
+
+  void Signal(ContextPtr c);
+
+  void Wait(ContextPtr c);
+
+ private:
+  DeviceType device_type_;  // makes sure it's always used with the same device
+                            // type.
+  k2std::counting_semaphore semaphore_;
+  std::mutex events_mutex_;
+  std::deque<cudaEvent_t> events_;
 };
 
 /*
@@ -426,9 +454,9 @@ class With {
 
   Note the order of (a) and (b), and (d) and (e).  If you get this wrong,
 */
-class ParallelRunner {
+class ParallelRunnerActive {
  public:
-  explicit ParallelRunner(ContextPtr c);
+  explicit ParallelRunnerActive(ContextPtr c);
 
   // create a new stream, that first syncs with stream of c_ via an event.  The
   // destructor will cause the stream of c_ to wait on this stream in the
@@ -444,12 +472,23 @@ class ParallelRunner {
   // so that you won't need to directly pass this into Eval(); the context
   // will call CudaStreamOverride::OverrideStream() and replace it
   // with this stream automatically.
-  cudaStream_t NewStream();
+  //
+  //    @param [in] num_work_items   Provided by the caller, saying how many
+  //               elements approximately may be processed with this stream.
+  //               If it's less than some internal threshold (e.g. 10k, we'd
+  //               tune it), we would not create a new stream; instead, we
+  //               just return stream 0 (the default stream).
+  //    @return Returns the created new stream, or stream 0 if num_work_items
+  //            is less than the internal threshold (i.e. 10k for now).
+  cudaStream_t NewStream(std::size_t num_work_items = 0);
 
-  // calling Finish() is equivalent to calling the destructor early.
+  // Calling Finish() is equivalent to calling the destructor early.
+  // But user should never call this directly if they use
+  // `With w(pr.NewStream())` and `w` is not destructed; instead, they should
+  // wait the destructor of `pr` to call this.
   void Finish();
 
-  ~ParallelRunner() { Finish(); }
+  ~ParallelRunnerActive() { Finish(); }
 
  private:
   ContextPtr c_;
@@ -457,6 +496,19 @@ class ParallelRunner {
   cudaEvent_t event_;
 };
 
+// use the one that does nothing.  Turns out cudaStreamCreate and
+// cudaEventRecord() are too slow to make this worthwhile.
+class ParallelRunnerDummy {
+ public:
+  explicit ParallelRunnerDummy(ContextPtr c) : stream_(c->GetCudaStream()) {}
+  cudaStream_t NewStream() { return stream_; }
+  void Finish() {}
+
+ private:
+  cudaStream_t stream_;
+};
+
+using ParallelRunner = ParallelRunnerActive;
 }  // namespace k2
 
 #endif  // K2_CSRC_CONTEXT_H_

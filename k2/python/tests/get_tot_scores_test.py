@@ -33,15 +33,16 @@ class TestGetTotScores(unittest.TestCase):
             8 9 -1 6
             9
         '''
-        cpu_device = torch.device('cpu')
-        cuda_device = torch.device('cuda', 0)
-        for device in (cpu_device, cuda_device):
+        devices = [torch.device('cpu')]
+        if torch.cuda.is_available():
+            devices.append(torch.device('cuda'))
+
+        for device in devices:
             fsa = k2.Fsa.from_str(s).to(device)
             fsa = k2.create_fsa_vec([fsa])
             fsa.requires_grad_(True)
-            log_like = k2.get_tot_scores(fsa,
-                                         log_semiring=False,
-                                         use_float_scores=True)
+            log_like = fsa.get_tot_scores(log_semiring=False,
+                                          use_double_scores=False)
 
             assert log_like == 14
             assert log_like.dtype == torch.float32
@@ -55,9 +56,8 @@ class TestGetTotScores(unittest.TestCase):
 
             # now for double
             fsa.scores.grad = None
-            log_like = k2.get_tot_scores(fsa,
-                                         log_semiring=False,
-                                         use_float_scores=False)
+            log_like = fsa.get_tot_scores(log_semiring=False,
+                                          use_double_scores=True)
             assert log_like == 14
             assert log_like.dtype == torch.float64
 
@@ -114,9 +114,11 @@ class TestGetTotScores(unittest.TestCase):
             3
         '''
 
-        cpu_device = torch.device('cpu')
-        cuda_device = torch.device('cuda', 0)
-        for device in (cpu_device, cuda_device):
+        devices = [torch.device('cpu')]
+        if torch.cuda.is_available():
+            devices.append(torch.device('cuda'))
+
+        for device in devices:
             fsa1 = k2.Fsa.from_str(s1).to(device)
             fsa2 = k2.Fsa.from_str(s2).to(device)
             fsa3 = k2.Fsa.from_str(s3).to(device)
@@ -127,9 +129,8 @@ class TestGetTotScores(unittest.TestCase):
 
             fsa_vec = k2.create_fsa_vec([fsa1, fsa2, fsa3])
 
-            log_like = k2.get_tot_scores(fsa_vec,
-                                         log_semiring=False,
-                                         use_float_scores=True)
+            log_like = fsa_vec.get_tot_scores(log_semiring=False,
+                                              use_double_scores=False)
             assert log_like.dtype == torch.float32
             expected_log_like = torch.tensor([14, 13, 105.5]).to(device)
             assert torch.allclose(log_like, expected_log_like)
@@ -159,9 +160,8 @@ class TestGetTotScores(unittest.TestCase):
             fsa1.scores.grad = None
             fsa2.scores.grad = None
             fsa3.scores.grad = None
-            log_like = k2.get_tot_scores(fsa_vec,
-                                         log_semiring=False,
-                                         use_float_scores=False)
+            log_like = fsa_vec.get_tot_scores(log_semiring=False,
+                                              use_double_scores=True)
 
             assert log_like.dtype == torch.float64
             expected_log_like = expected_log_like.to(torch.float64)
@@ -195,15 +195,16 @@ class TestGetTotScores(unittest.TestCase):
             3 4 -1 0
             4
         '''
-        cpu_device = torch.device('cpu')
-        cuda_device = torch.device('cuda', 0)
-        for device in (cpu_device, cuda_device):
+        devices = [torch.device('cpu')]
+        if torch.cuda.is_available():
+            devices.append(torch.device('cuda', 0))
+
+        for device in devices:
             fsa = k2.Fsa.from_str(s).to(device)
             fsa.requires_grad_(True)
             fsa_vec = k2.create_fsa_vec([fsa])
-            log_like = k2.get_tot_scores(fsa_vec,
-                                         log_semiring=True,
-                                         use_float_scores=True)
+            log_like = fsa_vec.get_tot_scores(log_semiring=True,
+                                              use_double_scores=False)
             assert log_like.dtype == torch.float32
             # The expected_log_like is computed using gtn.
             # See https://bit.ly/3oUiRx9
@@ -223,9 +224,8 @@ class TestGetTotScores(unittest.TestCase):
 
             # now for double
             fsa.scores.grad = None
-            log_like = k2.get_tot_scores(fsa_vec,
-                                         log_semiring=True,
-                                         use_float_scores=False)
+            log_like = fsa_vec.get_tot_scores(log_semiring=True,
+                                              use_double_scores=True)
             assert log_like.dtype == torch.float64
             expected_log_like = expected_log_like.to(torch.float64)
             assert torch.allclose(log_like, expected_log_like)
@@ -258,9 +258,11 @@ class TestGetTotScores(unittest.TestCase):
             4 5 -1 1.0
             5
         '''
-        cpu_device = torch.device('cpu')
-        cuda_device = torch.device('cuda', 0)
-        for device in (cpu_device, cuda_device):
+        devices = [torch.device('cpu')]
+        if torch.cuda.is_available():
+            devices.append(torch.device('cuda', 0))
+
+        for device in devices:
             fsa1 = k2.Fsa.from_str(s1).to(device)
             fsa2 = k2.Fsa.from_str(s2).to(device)
 
@@ -268,9 +270,8 @@ class TestGetTotScores(unittest.TestCase):
             fsa2.requires_grad_(True)
 
             fsa_vec = k2.create_fsa_vec([fsa1, fsa2])
-            log_like = k2.get_tot_scores(fsa_vec,
-                                         log_semiring=True,
-                                         use_float_scores=True)
+            log_like = fsa_vec.get_tot_scores(log_semiring=True,
+                                              use_double_scores=False)
             assert log_like.dtype == torch.float32
             # The expected_log_likes are computed using gtn.
             # See https://bit.ly/3oUiRx9
@@ -304,9 +305,8 @@ class TestGetTotScores(unittest.TestCase):
             fsa1.scores.grad = None
             fsa2.scores.grad = None
 
-            log_like = k2.get_tot_scores(fsa_vec,
-                                         log_semiring=True,
-                                         use_float_scores=False)
+            log_like = fsa_vec.get_tot_scores(log_semiring=True,
+                                              use_double_scores=True)
             assert log_like.dtype == torch.float64
             expected_log_like = expected_log_like.to(torch.float64)
             assert torch.allclose(log_like, expected_log_like)

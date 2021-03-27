@@ -37,11 +37,11 @@ class TestUnion(unittest.TestCase):
             1 2 -1 1.0
             2
         '''
+        devices = [torch.device('cpu')]
+        if torch.cuda.is_available():
+            devices.append(torch.device('cuda'))
 
-        cpu_device = torch.device('cpu')
-        cuda_device = torch.device('cuda', 0)
-
-        for device in (cpu_device, cuda_device):
+        for device in devices:
             fsa0 = k2.Fsa.from_str(s0)
             fsa1 = k2.Fsa.from_str(s1)
             fsa2 = k2.Fsa.from_str(s2)
@@ -99,10 +99,11 @@ class TestUnion(unittest.TestCase):
             1 2 -1 1.2
             2
         '''
-        cpu_device = torch.device('cpu')
-        cuda_device = torch.device('cuda', 0)
+        devices = [torch.device('cpu')]
+        if torch.cuda.is_available():
+            devices.append(torch.device('cuda', 0))
 
-        for device in (cpu_device, cuda_device):
+        for device in devices:
             fsa0 = k2.Fsa.from_str(s0).to(device).requires_grad_(True)
             fsa1 = k2.Fsa.from_str(s1).to(device).requires_grad_(True)
             fsa2 = k2.Fsa.from_str(s2).to(device).requires_grad_(True)
@@ -110,9 +111,8 @@ class TestUnion(unittest.TestCase):
             fsa_vec = k2.create_fsa_vec([fsa0, fsa1, fsa2])
             fsa = k2.union(fsa_vec)
             fsa_vec = k2.create_fsa_vec([fsa])
-            log_like = k2.get_tot_scores(fsa_vec,
-                                         log_semiring=True,
-                                         use_float_scores=True)
+            log_like = fsa_vec.get_tot_scores(log_semiring=True,
+                                              use_double_scores=False)
             # expected log_like and gradients are computed using gtn.
             # See https://bit.ly/35uVaUv
             log_like.backward()

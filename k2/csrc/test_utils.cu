@@ -1,11 +1,6 @@
 /**
- * @brief
- * test_utils
- *
- * @copyright
  * Copyright (c)  2020  Mobvoi Inc.        (authors: Fangjun Kuang)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -16,12 +11,15 @@
 #include "k2/csrc/fsa.h"
 #include "k2/csrc/host/fsa_util.h"
 #include "k2/csrc/host_shim.h"
+#include "k2/csrc/macros.h"
 #include "k2/csrc/math.h"
+#include "k2/csrc/nvtx.h"
 #include "k2/csrc/test_utils.h"
 
 namespace k2 {
 
 void ToNotTopSorted(Fsa *fsa) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_EQ(fsa->Context()->GetDeviceType(), kCpu);
 
   int32_t num_states = fsa->TotSize(0);
@@ -53,6 +51,7 @@ void ToNotTopSorted(Fsa *fsa) {
 }
 
 Fsa GetRandFsa() {
+  NVTX_RANGE(K2_FUNC);
   k2host::RandFsaOptions opts;
   opts.num_syms = 5 + RandInt(0, 100);
   opts.num_states = 10 + RandInt(0, 2000);
@@ -70,6 +69,18 @@ Fsa GetRandFsa() {
   ToNotTopSorted(&ans);
 
   return ans;
+}
+
+Array1<int32_t> GenerateRandomIndexes(ContextPtr context, bool allow_minus_one,
+                                      int32_t dim, int32_t max_value) {
+  std::vector<int32_t> indexes(dim);
+  int32_t start = allow_minus_one ? -1 : 0;
+  for (int32_t &i : indexes) {
+    int32_t tmp = RandInt(-max_value, max_value);
+    i = std::max(tmp, start);
+  }
+
+  return Array1<int32_t>(context, indexes);
 }
 
 }  // namespace k2

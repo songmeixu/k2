@@ -1,14 +1,32 @@
 # Copyright (c)  2020  Mobvoi Inc.        (authors: Fangjun Kuang)
 # See ../../../LICENSE for clarification regarding multiple authors
 
+from typing import Union
+
 from k2 import _k2
 import numpy as np
-
 
 from .fsa import Fsa
 
 
 class DenseFsaVec(object):
+
+    # Note: you can access members self.scores and self.dense_fsa_vec.
+    # self.scores is a torch.Tensor containing the scores; it will
+    # contain rows of the `log_probs` arg given to __init__ interspersed
+    # with rows representing final-arcs.  The structure is something like:
+    #
+    #  [ [ -inf x x x x x x  ]
+    #    [ -inf x x x x x x  ]
+    #    [ -inf x x x x x x  ]
+    #    [  0 -inf -inf -inf.. ]
+    #    [ -inf x x x x x x  ]
+    #     ...
+    #  ]
+    # where the x's come from the `log_probs` arg, and the 0's and
+    # -inf's are added by this class (those special rows with no x's
+    # correspond to the final-arcs in the FSAs; the 0 corresponds to
+    # symbol -1.)
 
     def __init__(self, log_probs: torch.Tensor,
                  supervision_segments: torch.Tensor) -> None:
@@ -16,21 +34,26 @@ class DenseFsaVec(object):
 
         Args:
           log_probs:
-            A 3-D tensor of dtype ``torch.float32`` with shape ``(N, T, C)``,
-            where ``N`` is the number of sequences, ``T`` the maximum input
-            length, and ``C`` the number of output classes.
+            A 3-D tensor of dtype `torch.float32` with shape `(N, T, C)`,
+            where `N` is the number of sequences, `T` the maximum input
+            length, and `C` the number of output classes.
           supervision_segments:
-            A 2-D **CPU** tensor of dtype ``torch.int32`` with 3 columns.
+            A 2-D **CPU** tensor of dtype `torch.int32` with 3 columns.
             Each row contains information for a supervision segment. Column 0
-            is the ``sequence_index`` indicating which sequence this segment
-            comes from; column 1 specifies the ``start_frame`` of this segment
-            within the sequence; column 2 contains the ``duration`` of this
+            is the `sequence_index` indicating which sequence this segment
+            comes from; column 1 specifies the `start_frame` of this segment
+            within the sequence; column 2 contains the `duration` of this
             segment.
 
             Note:
-              - ``0 < start_frame + duration <= T``
-              - ``0 <= start_frame < T``
-              - ``duration > 0``
+              - `0 < start_frame + duration <= T`
+              - `0 <= start_frame < T`
+              - `duration > 0`
+
+            Caution:
+              The last column, i.e., the duration column, has to be sorted
+              in **decreasing** order. That is, the first supervision_segment
+              (the first row) has the largest duration.
         '''
         assert log_probs.ndim == 3
         assert log_probs.dtype == torch.float32
@@ -65,9 +88,7 @@ class DenseFsaVec(object):
         device = log_probs.device
         indexes = torch.cat(indexes).to(device)
 
-        scores = log_probs.new_empty(cur,
-                                     C + 1,
-                                     requires_grad=log_probs.requires_grad)
+        scores = torch.empty(cur, C + 1, dtype=log_probs.dtype, device=device)
         scores[:, 1:] = log_probs.reshape(-1, C).index_select(0, indexes)
 
         # `scores` contains -infinity in certain locations: in scores[j,0] where
@@ -88,12 +109,77 @@ class DenseFsaVec(object):
         self.dense_fsa_vec = _k2.DenseFsaVec(scores, row_splits)
         self.scores = scores  # for back propagation
 
+    @classmethod
+    def _from_dense_fsa_vec(cls, dense_fsa_vec: _k2.DenseFsaVec,
+                            scores: torch.Tensor) -> 'DenseFsaVec':
+        '''Construct a DenseFsaVec from `_k2.DenseFsaVec` and `scores`.
+
+        Note:
+          It is intended for internal use. Users will normally not use it.
+
+        Args:
+          dense_fsa_vec: An instance of `_k2.DenseFsaVec`.
+          scores: The `scores` of `_k2.DenseFsaVec` for back propagation.
+
+        Return:
+          An instance of DenseFsaVec.
+        '''
+        ans = cls.__new__(cls)
+        super(DenseFsaVec, ans).__init__()
+        ans.dense_fsa_vec = dense_fsa_vec
+        ans.scores = scores
+        return ans
+
     def dim0(self) -> int:
-        '''Return number of supervision segments'''
+        '''Return number of supervision segments.'''
         return self.dense_fsa_vec.dim0()
 
     def __str__(self) -> str:
         return self.dense_fsa_vec.to_str()
+
+    @property
+    def device(self) -> torch.device:
+        return self.scores.device
+
+    def is_cpu(self) -> bool:
+        '''Return true if this DenseFsaVec is on CPU.
+
+        Returns:
+          True if the DenseFsaVec is on CPU; False otherwise.
+        '''
+        return self.device.type == 'cpu'
+
+    def is_cuda(self) -> bool:
+        '''Return true if this DenseFsaVec is on GPU.
+
+        Returns:
+          True if the DenseFsaVec is on GPU; False otherwise.
+        '''
+        return self.device.type == 'cuda'
+
+    def to(self, device: Union[torch.device, str]) -> 'DenseFsaVec':
+        '''Move the DenseFsaVec onto a given device.
+
+        Args:
+          device:
+            An instance of `torch.device` or a string that can be used to
+            construct a `torch.device`, e.g., 'cpu', 'cuda:0'.
+            It supports only cpu and cuda devices.
+
+        Returns:
+          Returns a new DenseFsaVec which is this object copied to the given
+          device (or this object itself, if the device was the same).
+        '''
+        if isinstance(device, str):
+            device = torch.device(device)
+
+        assert device.type in ('cpu', 'cuda')
+        if device == self.scores.device:
+            return self
+
+        scores = self.scores.to(device)
+        dense_fsa_vec = self.dense_fsa_vec.to(device)
+        return DenseFsaVec._from_dense_fsa_vec(dense_fsa_vec, scores)
 
 
 def convert_dense_to_fsa_vec(dense_fsa_vec: DenseFsaVec) -> Fsa:

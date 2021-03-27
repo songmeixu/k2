@@ -1,11 +1,6 @@
 /**
- * @brief
- * dtype
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Daniel Povey)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -27,4 +22,10 @@ const Dtype DtypeOf<int32_t>::dtype;
 const Dtype DtypeOf<int64_t>::dtype;
 const Dtype DtypeOf<uint32_t>::dtype;
 const Dtype DtypeOf<uint64_t>::dtype;
+
+std::ostream &operator<<(std::ostream &os, Dtype dtype) {
+  os << TraitsOf(dtype).Name();
+  return os;
+}
+
 }  // namespace k2

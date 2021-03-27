@@ -11,7 +11,7 @@ function(k2_add_py_test source)
   get_filename_component(k2_path ${CMAKE_CURRENT_LIST_DIR} DIRECTORY)
 
   set_property(TEST ${name}
-    PROPERTY ENVIRONMENT "PYTHONPATH=$<TARGET_FILE_DIR:_k2>:${k2_path}:$ENV{PYTHONPATH}"
+    PROPERTY ENVIRONMENT "PYTHONPATH=${k2_path}:$<TARGET_FILE_DIR:_k2>:$ENV{PYTHONPATH}"
   )
 endfunction()
 
@@ -19,19 +19,40 @@ endfunction()
 set(py_test_files
   add_epsilon_self_loops_test.py
   arc_sort_test.py
-  get_tot_scores_test.py
+  closure_test.py
+  compose_test.py
   connect_test.py
+  create_sparse_test.py
+  ctc_gradients_test.py
   dense_fsa_vec_test.py
   determinize_test.py
+  fsa_from_unary_function_ragged_test.py
+  fsa_from_unary_function_tensor_test.py
   fsa_test.py
-  index_test.py
+  get_arc_post_test.py
+  get_backward_scores_test.py
+  get_forward_scores_test.py
+  get_tot_scores_test.py
   index_add_test.py
+  index_and_sum_test.py
   index_select_test.py
+  index_test.py
   intersect_dense_pruned_test.py
+  intersect_dense_test.py
+  intersect_device_test.py
   intersect_test.py
+  invert_test.py
   linear_fsa_test.py
+  linear_fst_test.py
+  numerical_gradient_check_test.py
+  ragged_ops_test.py
+  ragged_shape_test.py
+  ragged_test.py
+  random_paths_test.py
   remove_epsilon_test.py
   shortest_path_test.py
+  sparse_abs_test.py
+  symbol_table_test.py
   top_sort_test.py
   union_test.py
 )

@@ -28,24 +28,33 @@ endif()
 set(context_srcs
   algorithms.cu
   array_ops.cu
-  intersect.cu
-  top_sort.cu
   context.cu
+  cudpp/cudpp.cu
   dtype.cu
   fsa.cu
   fsa_algo.cu
   fsa_utils.cu
   host_shim.cu
+  intersect.cu
+  intersect_dense.cu
+  intersect_dense_pruned.cu
   math.cu
   moderngpu_allocator.cu
+  pinned_context.cu
   ragged.cu
   ragged_ops.cu
+  ragged_utils.cu
+  rand.cu
+  rm_epsilon.cu
   tensor.cu
   tensor_ops.cu
+  thread_pool.cu
+  timer.cu
+  top_sort.cu
   utils.cu
 )
 
-if(USE_PYTORCH)
+if(K2_USE_PYTORCH)
   list(APPEND context_srcs pytorch_context.cu)
 else()
   list(APPEND context_srcs default_context.cu)
@@ -53,11 +62,17 @@ endif()
 
 # the target
 add_library(k2_context SHARED ${context_srcs})
+target_compile_definitions(k2_context PUBLIC K2_TORCH_VERSION_MAJOR=${K2_TORCH_VERSION_MAJOR})
+target_compile_definitions(k2_context PUBLIC K2_TORCH_VERSION_MINOR=${K2_TORCH_VERSION_MINOR})
+
 set_target_properties(k2_context PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
 # lib deps
+if(CUDA_VERSION VERSION_LESS 11.0)
+  target_link_libraries(k2_context PUBLIC cub::cub)
+endif()
 target_link_libraries(k2_context PUBLIC fsa k2_log k2_nvtx cub::cub moderngpu::moderngpu)
-if(USE_PYTORCH)
+if(K2_USE_PYTORCH)
   target_link_libraries(k2_context PUBLIC ${TORCH_LIBRARIES})
 endif()
 
@@ -76,13 +91,22 @@ set(cuda_tests
   fsa_algo_test
   fsa_test
   fsa_utils_test
+  hash_test
   host_shim_test
   intersect_test
   log_test
+  macros_test
+  math_test
   nvtx_test
+  pinned_context_test
   ragged_shape_test
   ragged_test
+  ragged_utils_test
+  rand_test
+  rm_epsilon_test
+  tensor_ops_test
   tensor_test
+  thread_pool_test
   top_sort_test
   utils_test
 )
@@ -111,3 +135,7 @@ endfunction()
 foreach(name IN LISTS cuda_tests)
   k2_add_cuda_test(${name})
 endforeach()
+
+if(K2_ENABLE_BENCHMARK)
+  add_subdirectory(benchmark)
+endif()

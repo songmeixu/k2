@@ -1,15 +1,11 @@
 /**
- * @brief
- * pytorch_context
- *
- * @copyright
  * Copyright (c)  2020  Mobvoi Inc.        (authors: Fangjun Kuang)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
 #include <memory>
+#include <mutex>  // NOLINT
 
 #include "c10/cuda/CUDACachingAllocator.h"
 #include "c10/cuda/CUDAFunctions.h"
@@ -19,14 +15,21 @@
 
 namespace k2 {
 
+static std::once_flag has_cuda_init_flag;
+static bool has_cuda = false;
+static void InitHasCuda() {
+  if (torch::cuda::is_available())
+    has_cuda = true;
+  else
+    K2_LOG(WARNING) << "CUDA is not available. Return a CPU context.";
+}
+
 class PytorchCpuContext : public Context {
  public:
   PytorchCpuContext() {
     allocator_ = torch::GetAllocator(torch::kCPU);
     K2_CHECK(allocator_->raw_deleter() != nullptr);
   }
-
-  ContextPtr GetPinnedContext() override { return nullptr; }
 
   DeviceType GetDeviceType() const override { return kCpu; }
 
@@ -50,6 +53,26 @@ class PytorchCpuContext : public Context {
     return other.GetDeviceType() == kCpu;
   }
 
+  void CopyDataTo(size_t num_bytes, const void *src, ContextPtr dst_context,
+                  void *dst) override {
+    DeviceType device_type = dst_context->GetDeviceType();
+    switch (device_type) {
+      case kCpu:
+        memcpy(dst, src, num_bytes);
+        break;
+      case kCuda: {
+        ContextPtr pinned_context = GetPinnedContext();
+        auto region = NewRegion(pinned_context, num_bytes);
+        memcpy(region->data, src, num_bytes);
+        pinned_context->CopyDataTo(num_bytes, region->data, dst_context, dst);
+        break;
+      }
+      default:
+        K2_LOG(FATAL) << "Unsupported device type: " << device_type;
+        break;
+    }
+  }
+
  private:
   torch::Allocator *allocator_;  // NOT owned here
 };
@@ -71,8 +94,6 @@ class PytorchCudaContext : public Context {
     allocator_ = c10::cuda::CUDACachingAllocator::get();
     K2_CHECK(allocator_->raw_deleter() != nullptr);
   }
-
-  ContextPtr GetPinnedContext() override { return nullptr; }
 
   DeviceType GetDeviceType() const override { return kCuda; }
 
@@ -108,6 +129,29 @@ class PytorchCudaContext : public Context {
     K2_CHECK_CUDA_ERROR(ret);
   }
 
+  void CopyDataTo(size_t num_bytes, const void *src, ContextPtr dst_context,
+                  void *dst) override {
+    DeviceType device_type = dst_context->GetDeviceType();
+    switch (device_type) {
+      case kCpu: {
+        cudaError_t ret =
+            cudaMemcpy(dst, src, num_bytes, cudaMemcpyDeviceToHost);
+        K2_CHECK_CUDA_ERROR(ret);
+        break;
+      }
+      case kCuda: {
+        cudaError_t ret =
+            cudaMemcpyAsync(dst, src, num_bytes, cudaMemcpyDeviceToDevice,
+                            dst_context->GetCudaStream());
+        K2_CHECK_CUDA_ERROR(ret);
+        break;
+      }
+      default:
+        K2_LOG(FATAL) << "Unsupported device type: " << device_type;
+        break;
+    }
+  }
+
  private:
   torch::Allocator *allocator_;  // NOT owned here
   int32_t gpu_id_;
@@ -116,11 +160,17 @@ class PytorchCudaContext : public Context {
 ContextPtr GetCpuContext() { return std::make_shared<PytorchCpuContext>(); }
 
 ContextPtr GetCudaContext(int32_t gpu_id /*= -1*/) {
-  if (gpu_id < 0) gpu_id = c10::cuda::current_device();
-  return std::make_shared<PytorchCudaContext>(gpu_id);
+  std::call_once(has_cuda_init_flag, InitHasCuda);
+
+  if (has_cuda) {
+    if (gpu_id < 0) gpu_id = c10::cuda::current_device();
+    return std::make_shared<PytorchCudaContext>(gpu_id);
+  }
+
+  return GetCpuContext();
 }
 
-RegionPtr NewRegion(torch::Tensor &tensor) {
+RegionPtr NewRegion(torch::Tensor tensor) {
   auto ans = std::make_shared<Region>();
   if (tensor.device().type() == torch::kCPU) {
     ans->context = GetCpuContext();
@@ -138,7 +188,15 @@ RegionPtr NewRegion(torch::Tensor &tensor) {
   auto *managed_tensor = new ManagedTensor(tensor);
   ans->data = tensor.data_ptr();
   ans->deleter_context = managed_tensor;
-  ans->num_bytes = tensor.nbytes();
+#if K2_TORCH_VERSION_MAJOR > 1 || \
+    (K2_TORCH_VERSION_MAJOR == 1 && K2_TORCH_VERSION_MINOR > 5)
+  // nbytes() is available only for torch > 1.5
+  // see https://github.com/pytorch/pytorch/pull/37028
+  ans->num_bytes = tensor.storage().nbytes();
+#else
+  // capacity() is available only for torch <= 1.5.0
+  ans->num_bytes = tensor.storage().capacity();
+#endif
   ans->bytes_used = ans->num_bytes;
   return ans;
 }

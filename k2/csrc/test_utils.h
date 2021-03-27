@@ -1,12 +1,7 @@
 /**
- * @brief
- * test_utils
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Haowen Qiu)
  *                      Mobvoi Inc.        (authors: Fangjun Kuang)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -25,25 +20,14 @@
 
 namespace k2 {
 
-// clang-format off
-bool operator==(const Arc &a, const Arc &b) {
-  return a.src_state == b.src_state && \
-         a.dest_state == b.dest_state && \
-         a.label == b.label && \
-         fabs(a.score - b.score) < 1e-6;
-}
-// clang-format on
-
 template <typename T>
 void CheckArrayData(const Array1<T> &array, const std::vector<T> &target) {
   ASSERT_EQ(array.Dim(), target.size());
   const T *array_data = array.Data();
   // copy data from CPU/GPU to CPU
-  auto kind = GetMemoryCopyKind(*array.Context(), *GetCpuContext());
   std::vector<T> cpu_data(array.Dim());
-  MemoryCopy(static_cast<void *>(cpu_data.data()),
-             static_cast<const void *>(array_data),
-             array.Dim() * array.ElementSize(), kind, nullptr);
+  array.Context()->CopyDataTo(array.Dim() * array.ElementSize(), array_data,
+                              GetCpuContext(), cpu_data.data());
   EXPECT_EQ(cpu_data, target);
 }
 
@@ -69,33 +53,42 @@ bool ApproxEqual(FloatType a, FloatType b, double delta = 0.001) {
 }
 
 template <typename T>
-void ExpectEqual(const std::vector<T> &expected, const std::vector<T> &actual) {
+void ExpectEqual(const std::vector<T> &expected, const std::vector<T> &actual,
+                 double abs_error = 0.001) {
+  // noted abs_error is not used here, but will be used in below instantiation
+  // for double and float, so that when we call `ExpectEqual` in below
+  // `CheckArrayData` we don't need a if-else branch based on `T`.
   EXPECT_EQ(expected, actual);
 }
 
 template <>
 inline void ExpectEqual<float>(const std::vector<float> &expected,
-                               const std::vector<float> &actual) {
-  EXPECT_FLOAT_ARRAY_APPROX_EQ(expected, actual, 0.001);
+                               const std::vector<float> &actual,
+                               double abs_error) {
+  EXPECT_FLOAT_ARRAY_APPROX_EQ(expected, actual, abs_error);
 }
 
 template <>
 inline void ExpectEqual<double>(const std::vector<double> &expected,
-                                const std::vector<double> &actual) {
-  EXPECT_FLOAT_ARRAY_APPROX_EQ(expected, actual, 0.001);
+                                const std::vector<double> &actual,
+                                double abs_error) {
+  EXPECT_FLOAT_ARRAY_APPROX_EQ(expected, actual, abs_error);
 }
 
 // check if `array` and `target` have the same values
 template <typename T>
-void CheckArrayData(const Array1<T> &array, const Array1<T> &target) {
-  ASSERT_EQ(array.Dim(), target.Dim());
+void CheckArrayData(const Array1<T> &array, const Array1<T> &target,
+                    double abs_error = 0.001) {
+  if (array.Dim() != target.Dim()) {
+    K2_LOG(ERROR) << "Dims mismatch " << array.Dim() << " vs. " << target.Dim();
+  }
   int32_t dim = array.Dim();
   ContextPtr cpu = GetCpuContext();
   Array1<T> cpu_array = array.To(cpu);
   Array1<T> cpu_target = target.To(cpu);
   std::vector<T> array_data(cpu_array.Data(), cpu_array.Data() + dim);
   std::vector<T> target_data(cpu_target.Data(), cpu_target.Data() + dim);
-  ExpectEqual(target_data, array_data);
+  ExpectEqual(target_data, array_data, abs_error);
 }
 
 void CheckRowSplits(RaggedShape &shape,
@@ -108,6 +101,22 @@ void CheckRowSplits(RaggedShape &shape,
 
 // Return a random acyclic FSA that is NOT topo sorted
 Fsa GetRandFsa();
+
+/* Return 1-D array filled with random values.
+
+   @param [in] context  The device context specifying where the returned
+                        array resides.
+   @param [in] allow_minus_one
+                        If true, the returned array will contain values
+                        in the range [-1, max_value]; [0, max_value] otherwise.
+   @param [in] dim        It specifies the length of the returned array.
+   @param [in] max_value  It specifies the maximum value the returned array can
+                          contain.
+
+   @return  Return a 1-D array with the given `dim`.
+ */
+Array1<int32_t> GenerateRandomIndexes(ContextPtr context, bool allow_minus_one,
+                                      int32_t dim, int32_t max_value);
 
 }  // namespace k2
 

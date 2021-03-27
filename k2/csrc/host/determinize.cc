@@ -1,12 +1,7 @@
 /**
- * @brief
- * determinize
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Daniel Povey
  *                                                   Haowen Qiu)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -24,12 +19,15 @@
 #include "k2/csrc/host/fsa_util.h"
 #include "k2/csrc/host/properties.h"
 #include "k2/csrc/host/util.h"
+#include "k2/csrc/macros.h"
+#include "k2/csrc/nvtx.h"
 
 namespace k2host {
 
 template <typename TracebackState>
 void Determinizer<TracebackState>::GetSizes(
     Array2Size<int32_t> *fsa_size, Array2Size<int32_t> *arc_derivs_size) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(fsa_size, nullptr);
   K2_CHECK_NE(arc_derivs_size, nullptr);
   fsa_size->size1 = fsa_size->size2 = 0;
@@ -37,31 +35,26 @@ void Determinizer<TracebackState>::GetSizes(
 
   arcs_.clear();
   arc_derivs_.clear();
-  if (IsEmpty(fsa_in_.fsa)) return;
+  if (IsEmpty(fsa_in_)) return;
 
   DetStatePriorityQueue<TracebackState> queue;
   DetStateMap<TracebackState> map;
   using DS = DetState<TracebackState>;
   std::shared_ptr<DS> start_state(new DS());
 
-  bool ans = map.GetOutputState(start_state.get(), fsa_in_.fsa);
+  bool ans = map.GetOutputState(start_state.get(), fsa_in_);
   K2_CHECK(ans && start_state->state_id == 0);
 
   if (max_step_ <= 0) max_step_ = std::numeric_limits<int64_t>::max();
   int64_t num_steps = 0;
-  double total_prob = fsa_in_.BackwardStateWeights()[0],
-         prune_cutoff = total_prob - beam_;
   queue.push(std::move(start_state));
   while (num_steps < max_step_ && !queue.empty()) {
     std::shared_ptr<DS> state(queue.top());
     queue.pop();
-    num_steps += state->ProcessArcs(fsa_in_, prune_cutoff, &arcs_, &arc_derivs_,
-                                    &map, &queue);
+    num_steps +=
+        state->ProcessArcs(fsa_in_, &arcs_, &arc_derivs_, &map, &queue);
   }
-
   // We may stopped early due to max_step
-  effective_beam_ =
-      queue.empty() ? beam_ : total_prob - queue.top()->forward_backward_prob;
 
   K2_CHECK_EQ(arcs_.size(), arc_derivs_.size());
   int32_t num_states_out = -1, num_derivs_out = 0;
@@ -79,10 +72,11 @@ void Determinizer<TracebackState>::GetSizes(
 }
 
 template <typename TracebackState>
-float Determinizer<TracebackState>::GetOutput(
+void Determinizer<TracebackState>::GetOutput(
     Fsa *fsa_out,
     Array2<typename TracebackState::DerivType *, int32_t> *arc_derivs) {
-  if (IsEmpty(fsa_in_.fsa)) return beam_;
+  NVTX_RANGE(K2_FUNC);
+  if (IsEmpty(fsa_in_)) return;
 
   K2_CHECK_NE(fsa_out, nullptr);
   K2_CHECK_NE(arc_derivs, nullptr);
@@ -104,8 +98,6 @@ float Determinizer<TracebackState>::GetOutput(
     num_derivs += curr_arc_deriv.size();
   }
   arc_derivs->indexes[arc_derivs->size1] = num_derivs;
-
-  return effective_beam_;
 }
 
 // explicit instantiation here
@@ -121,6 +113,7 @@ LogSumTracebackLink::LogSumTracebackLink(
 
 int32_t GetMostRecentCommonAncestor(
     std::unordered_set<LogSumTracebackState *> *cur_states) {
+  NVTX_RANGE(K2_FUNC);
   int32_t ans = 0;
   std::unordered_set<LogSumTracebackState *> prev_states;
   for (; cur_states->size() != 1; ans++) {
@@ -138,6 +131,7 @@ int32_t GetMostRecentCommonAncestor(
 
 int32_t GetMostRecentCommonAncestor(
     std::unordered_set<MaxTracebackState *> *cur_states) {
+  NVTX_RANGE(K2_FUNC);
   int32_t ans = 0;
   std::unordered_set<MaxTracebackState *> prev_states;
   for (; cur_states->size() != 1; ans++) {
@@ -154,6 +148,7 @@ int32_t GetMostRecentCommonAncestor(
 void TraceBack(std::unordered_set<LogSumTracebackState *> *cur_states,
                int32_t num_steps, const Arc *arcs_in, float *weight_out,
                std::vector<std::pair<int32_t, float>> *deriv_out) {
+  NVTX_RANGE(K2_FUNC);
   std::unordered_set<LogSumTracebackState *> prev_states;
   assert(cur_states->size() == 1);
   // In the standard forward-backward algorithm for HMMs this backward_prob
@@ -200,6 +195,7 @@ void TraceBack(std::unordered_set<MaxTracebackState *> *cur_states,
                int32_t num_steps,
                const Arc *unused,  // arcs_in, unused.
                float *weight_out, std::vector<int32_t> *deriv_out) {
+  NVTX_RANGE(K2_FUNC);
   (void)unused;
   K2_CHECK_EQ(cur_states->size(), 1);
   MaxTracebackState *state = *(cur_states->begin());

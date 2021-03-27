@@ -1,11 +1,6 @@
 /**
- * @brief
- * math utilities
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Daniel Povey)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -21,10 +16,11 @@
 namespace k2 {
 
 /*
-  Returns index of highest bit set, in range -1..31.
+  Returns index of highest bit set, in range -1..30.
   HighestBitSet(0) = -1,
   HighestBitSet(1) = 0,
-  HighestBitSet(2,3) = 1
+  HighestBitSet(2) = 1
+  HighestBitSet(3) = 1
   ...
 
   Note we may delete this function later if there's no other usage.
@@ -124,8 +120,12 @@ inline std::istream &operator >>(std::istream &is, InputFixer<double> &f) {
   return is;
 }
 
-
-
+// Return the seed that can be used for random generators.
+//
+// It reads the environment variable `K2_SEED` to get the seed.
+// If `K2_SEED` is not set or is not a numeric string,
+// it returns 0.
+int32_t GetSeed();
 }  // namespace k2
 
 #endif  // K2_CSRC_MATH_H_

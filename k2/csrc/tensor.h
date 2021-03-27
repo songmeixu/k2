@@ -1,12 +1,7 @@
 /**
- * @brief
- * tensor
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Daniel Povey, Haowen Qiu)
  *                      Mobvoi Inc.        (authors: Fangjun Kuang)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -51,7 +46,7 @@ class Shape {
     return std::vector<int32_t>(strides_, strides_ + num_axes_);
   }
 
-  int32_t StorageSize() const { return storage_size_; }
+  int64_t StorageSize() const { return storage_size_; }
 
   bool IsContiguous() const { return is_contiguous_; }
 
@@ -79,8 +74,8 @@ class Shape {
   static const int32_t kMaxDim = 4;  // Will increase this as needed
 
   int32_t num_axes_ = 0;  // Must be >= 0
-  int32_t num_element_ = 0;
-  int32_t storage_size_ = 0;
+  int64_t num_element_ = 0;
+  int64_t storage_size_ = 0;
   bool is_contiguous_ = true;
 
   // elements of dims_ and strides_ >= num_axes_ are currently not set;
@@ -89,10 +84,14 @@ class Shape {
   int32_t strides_[kMaxDim];  // Strides in elements
 
   // compute the number of elements
-  int32_t ComputeNumElement() const;
-  int32_t ComputeStorageSize() const;
+  int64_t ComputeNumElement() const;
+  // compute the size of storage needed to hold this tensor, in elements.
+  // (different than ComputeNumElements(), because of strides).
+  int64_t ComputeStorageSize() const;
   bool ComputeIsContiguous() const;
 };
+
+std::ostream &operator<<(std::ostream &os, const Shape &shape);
 
 struct TensorImpl : public std::enable_shared_from_this<TensorImpl> {
   // This struct is not visible to the user and should be accessed via the
@@ -106,6 +105,10 @@ struct TensorImpl : public std::enable_shared_from_this<TensorImpl> {
   // we plan to generally hold Tensors as pointers, so there isn't much
   // need for an empty constructor).
   RegionPtr data;
+  TensorImpl() = default;
+  TensorImpl(const Shape &shape, Dtype dtype, size_t byte_offset,
+             RegionPtr data)
+      : shape(shape), dtype(dtype), byte_offset(byte_offset), data(data) {}
 };
 
 using TensorImplPtr = std::shared_ptr<TensorImpl>;
@@ -182,26 +185,23 @@ class Tensor {
     The returned value may share the same underlying `data` memory as *this.
     This should work even for tensors with empty data.
 
-    If dim_ == 0 and region_ is NULL, this will return a direct copy of *this
-    (i.e.  with region_ also NULL)
-
-    If dim == 0 and region_ is non-NULL, it will return a copy of *this with an
-    empty region with the supplied context (if different from current region's
-    context).
 
     Note: the answer will always be contiguous, i.e. there is a possibility that
     it will have a different memory layout than the input.  [Internally it will
     call `Contiguous()`.
   */
-  Tensor To(ContextPtr ctx);
+  Tensor To(ContextPtr ctx) const;
+
+  // Return a contiguous tensor that does not share memory with this tensor.
+  Tensor Clone() const;
 
   ContextPtr &Context() const { return impl_->data->context; }
 
  private:
   void Init(ContextPtr c);
+  explicit Tensor(TensorImplPtr impl);
   TensorImplPtr impl_;  // Must always be non-NULL.
 };
-
 
 // the primary declaration is in tensor_ops.h; included here to avoid
 // compilation problems in array.h

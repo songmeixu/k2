@@ -1,11 +1,6 @@
 /**
- * @brief
- * aux_labels
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Haowen Qiu)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -19,6 +14,8 @@
 #include "k2/csrc/host/fsa.h"
 #include "k2/csrc/host/fsa_util.h"
 #include "k2/csrc/host/properties.h"
+#include "k2/csrc/macros.h"
+#include "k2/csrc/nvtx.h"
 
 namespace {
 
@@ -37,6 +34,7 @@ namespace {
 static void CountExtraStates(const k2host::Fsa &fsa_in,
                              const k2host::AuxLabels &labels_in,
                              std::vector<int32_t> *num_extra_states) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_EQ(num_extra_states->size(), fsa_in.NumStates());
   auto &states = *num_extra_states;
   const auto arcs = fsa_in.data + fsa_in.indexes[0];
@@ -58,29 +56,29 @@ static void CountExtraStates(const k2host::Fsa &fsa_in,
                                `state_map[i]` in the output FSA.
                                At exit, it will be
                                state_map[0] = 0,
-                               state_map[i] = state_map[i-1]
+                               state_map[i] = num_extra_states[0]
+                                            + state_map[i-1]
                                             + num_extra_states[i]
                                             + 1, for any i >=1
   @param [out] state_ids       At exit, it will be
                                state_ids[0] = 0,
-                               state_ids[i] = state_map[i-1], for any i >= 1.
+                               state_ids[1] = num_extra_states[0],
+                               state_ids[i] = state_map[i-1], for any i > 1.
 */
 static void MapStates(const std::vector<int32_t> &num_extra_states,
                       std::vector<int32_t> *state_map,
                       std::vector<int32_t> *state_ids) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_EQ(state_map->size(), num_extra_states.size());
   K2_CHECK_EQ(state_ids->size(), num_extra_states.size());
   auto &s_map = *state_map;
   auto &s_ids = *state_ids;
-  // we suppose there's no arcs entering the start state (i.e. state id of the
-  // start state in output FSA will be 0), otherwise we may need to create a new
-  // state as the real start state.
-  K2_CHECK_EQ(num_extra_states[0], 0);
+
   auto num_states_in = num_extra_states.size();
   // process from the second state
   s_map[0] = 0;
   s_ids[0] = 0;
-  int32_t num_states_out = 0;
+  int32_t num_states_out = num_extra_states[0];
   for (auto i = 1; i != num_states_in; ++i) {
     s_ids[i] = num_states_out;
     // `+1` as we did not count state `i` itself in `num_extra_states`
@@ -93,6 +91,7 @@ static void MapStates(const std::vector<int32_t> &num_extra_states,
 namespace k2host {
 
 void AuxLabels1Mapper::GetSizes(Array2Size<int32_t> *aux_size) const {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(aux_size, nullptr);
   aux_size->size1 = arc_map_.size;
   int32_t num_labels = 0;
@@ -106,6 +105,7 @@ void AuxLabels1Mapper::GetSizes(Array2Size<int32_t> *aux_size) const {
 }
 
 void AuxLabels1Mapper::GetOutput(AuxLabels *labels_out) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(labels_out, nullptr);
   auto &start_pos = labels_out->indexes;
   auto &labels = labels_out->data;
@@ -124,6 +124,7 @@ void AuxLabels1Mapper::GetOutput(AuxLabels *labels_out) {
 }
 
 void AuxLabels2Mapper::GetSizes(Array2Size<int32_t> *aux_size) const {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(aux_size, nullptr);
   aux_size->size1 = arc_map_.size1;
   int32_t num_labels = 0;
@@ -136,6 +137,7 @@ void AuxLabels2Mapper::GetSizes(Array2Size<int32_t> *aux_size) const {
 }
 
 void AuxLabels2Mapper::GetOutput(AuxLabels *labels_out) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(labels_out, nullptr);
   auto &start_pos = labels_out->indexes;
   auto &labels = labels_out->data;
@@ -157,6 +159,7 @@ void AuxLabels2Mapper::GetOutput(AuxLabels *labels_out) {
 
 void FstInverter::GetSizes(Array2Size<int32_t> *fsa_size,
                            Array2Size<int32_t> *aux_size) const {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(fsa_size, nullptr);
   K2_CHECK_NE(aux_size, nullptr);
   int32_t num_extra_states = 0;
@@ -177,6 +180,7 @@ void FstInverter::GetSizes(Array2Size<int32_t> *fsa_size,
 }
 
 void FstInverter::GetOutput(Fsa *fsa_out, AuxLabels *labels_out) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(fsa_out, nullptr);
   K2_CHECK_NE(labels_out, nullptr);
 
@@ -212,27 +216,32 @@ void FstInverter::GetOutput(Fsa *fsa_out, AuxLabels *labels_out) {
     int32_t dest_state = arc.dest_state;
     if (dest_state == final_state_in) {
       // every arc entering the final state must have exactly
-      // one olabel == kFinalSymbol
-      K2_CHECK_EQ(pos_begin + 1, pos_end);
-      K2_CHECK_EQ(labels_in_.data[pos_begin], kFinalSymbol);
+      // one olabel == kFinalSymbol (the last one)
+      K2_CHECK_LT(pos_begin, pos_end);
+      K2_CHECK_EQ(labels_in_.data[pos_end - 1], kFinalSymbol);
     }
     if (pos_end - pos_begin <= 1) {
       int32_t curr_label =
           (pos_end - pos_begin == 0) ? kEpsilon : labels_in_.data[pos_begin];
+      if (dest_state != final_state_in) K2_CHECK_NE(curr_label, kFinalSymbol);
       arcs.emplace_back(state_map[src_state], state_map[dest_state], curr_label,
                         arc.weight);
     } else {
       // expand arcs with olabels
+      K2_CHECK_NE(labels_in_.data[pos_begin], kFinalSymbol);
       arcs.emplace_back(state_map[src_state], state_ids[dest_state] + 1,
                         labels_in_.data[pos_begin], arc.weight);
       start_pos.push_back(num_non_eps_ilabel_processed);
       for (int32_t pos = pos_begin + 1; pos < pos_end - 1; ++pos) {
         ++state_ids[dest_state];
+        K2_CHECK_NE(labels_in_.data[pos], kFinalSymbol);
         arcs.emplace_back(state_ids[dest_state], state_ids[dest_state] + 1,
                           labels_in_.data[pos], 0.0);
         start_pos.push_back(num_non_eps_ilabel_processed);
       }
       ++state_ids[dest_state];
+      if (dest_state != final_state_in)
+        K2_CHECK_NE(labels_in_.data[pos_end - 1], kFinalSymbol);
       arcs.emplace_back(state_ids[dest_state], state_map[arc.dest_state],
                         labels_in_.data[pos_end - 1], 0.0);
     }

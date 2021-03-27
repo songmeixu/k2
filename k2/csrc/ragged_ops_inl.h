@@ -1,16 +1,8 @@
 /**
- * @brief
- * ragged_ops_inl
- *
- * @note
- * This is to be included only from ragged.h.
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Daniel Povey
  *                                                   Haowen Qiu)
  *                      Mobvoi Inc.        (authors: Fangjun Kuang)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -22,25 +14,28 @@
 #endif
 
 #include <algorithm>
+#include <limits>
 #include <memory>
 #include <numeric>
+#include <type_traits>
 #include <vector>
 
 #include "k2/csrc/array_ops.h"
+#include "k2/csrc/cudpp/cudpp.h"
+#include "k2/csrc/macros.h"
 #include "k2/csrc/moderngpu_allocator.h"
 #include "moderngpu/kernel_segsort.hxx"
 
 namespace k2 {
 
 template <typename T, typename Op>
-void ApplyOpPerSublist(Ragged<T> &src, T default_value, Array1<T> *dst) {
-  NVTX_RANGE("ApplyOpPerSublist");
-  NVTX_RANGE(typeid(T).name());  // hopefully we'll see what the op was from this.
+void SegmentedReduce(Ragged<T> &src, T initial_value, Array1<T> *dst) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_GE(src.NumAxes(), 2);
   K2_CHECK(IsCompatible(src.shape, *dst));
 
   int32_t last_axis = src.NumAxes() - 1;
-  const Array1<int32_t> &row_splits_array = src.shape.RowSplits(last_axis);
+  const Array1<int32_t> &row_splits_array = src.RowSplits(last_axis);
   int32_t num_rows = row_splits_array.Dim() - 1;
   K2_CHECK_EQ(num_rows, dst->Dim());
 
@@ -53,7 +48,7 @@ void ApplyOpPerSublist(Ragged<T> &src, T default_value, Array1<T> *dst) {
   if (c->GetDeviceType() == kCpu) {
     int32_t j = row_splits[0];
     for (int32_t i = 0; i < num_rows; ++i) {
-      T val = default_value;
+      T val = initial_value;
       int32_t row_end = row_splits[i + 1];
       for (; j < row_end; ++j) {
         T elem = values_data[j];
@@ -62,89 +57,179 @@ void ApplyOpPerSublist(Ragged<T> &src, T default_value, Array1<T> *dst) {
       output_data[i] = val;
     }
   } else {
-    K2_CHECK(c->GetDeviceType() == kCuda);
+    K2_CHECK_EQ(c->GetDeviceType(), kCuda);
 
     // This code is based on the example here:
     // https://nvlabs.github.io/cub/structcub_1_1_device_segmented_reduce.html
-    void *d_temp_storage = NULL;
     std::size_t temp_storage_bytes = 0;
 
     // the first time is to determine temporary device storage requirements
     K2_CUDA_SAFE_CALL(cub::DeviceSegmentedReduce::Reduce(
-        d_temp_storage, temp_storage_bytes, values_data, output_data, num_rows,
-        row_splits, row_splits + 1, op, default_value, c->GetCudaStream()));
-    void *deleter_context;
-    d_temp_storage = c->Allocate(temp_storage_bytes, &deleter_context);
+        nullptr, temp_storage_bytes, values_data, output_data, num_rows,
+        row_splits, row_splits + 1, op, initial_value, c->GetCudaStream()));
+    Array1<int8_t> d_temp_storage(c, temp_storage_bytes);
     K2_CUDA_SAFE_CALL(cub::DeviceSegmentedReduce::Reduce(
-        d_temp_storage, temp_storage_bytes, values_data, output_data, num_rows,
-        row_splits, row_splits + 1, op, default_value, c->GetCudaStream()));
-    c->Deallocate(d_temp_storage, deleter_context);
+        d_temp_storage.Data(), temp_storage_bytes, values_data, output_data,
+        num_rows, row_splits, row_splits + 1, op, initial_value,
+        c->GetCudaStream()));
   }
 }
 
 template <typename T>
-Ragged<T> Stack(int32_t axis, int32_t num_srcs, Ragged<T> **src) {
-  NVTX_RANGE("Stack1");
-  K2_CHECK(axis == 0 || axis == 1);
-  K2_CHECK_GT(num_srcs, 0);  // can later relax this, maybe
-  std::vector<RaggedShape *> src_shapes(num_srcs);
-  std::vector<const Array1<T> *> src_values(num_srcs);
-  for (int32_t i = 0; i != num_srcs; ++i) {
-    src_shapes[i] = &(src[i]->shape);
-    src_values[i] = &(src[i]->values);
+Ragged<T> NormalizePerSublist(Ragged<T> &src, bool use_log) {
+  NVTX_RANGE(K2_FUNC);
+  K2_STATIC_ASSERT(
+      (std::is_same<float, T>::value || std::is_same<double, T>::value));
+  T negative_infinity = -std::numeric_limits<T>::infinity();
+  T eps = std::numeric_limits<T>::epsilon();
+
+  ContextPtr &context = src.Context();
+  int32_t num_axes = src.NumAxes();
+  Array1<T> values(context, src.TotSize(num_axes - 2));
+
+  if (use_log) {
+    LogSumPerSublist<T>(src, negative_infinity, &values);
+  } else {
+    SumPerSublist<T>(src, 0, &values);
   }
-  // below line will check if srcs are compatible with each other or not, i.e.
-  // context compatibility and num-axes compatibility.
-  RaggedShape ans_shape = Stack(0, num_srcs, src_shapes.data());
-  Array1<T> ans_values = Append(num_srcs, src_values.data());
-  Ragged<T> ans(ans_shape, ans_values);
-  if (axis == 1)
-    return Transpose(ans);
-  else
-    return ans;
+
+  const T *values_data = values.Data();
+  const int32_t *row_ids_data = src.RowIds(num_axes - 1).Data();
+
+  Array1<T> ans_values(context, src.values.Dim());
+  Ragged<T> ans(src.shape, ans_values);
+
+  T *ans_data = ans.values.Data();
+  const T *src_data = src.values.Data();
+
+  if (use_log) {
+    K2_EVAL(
+        context, ans_values.Dim(), lambda_do_normalization, (int32_t i)->void {
+          int32_t row = row_ids_data[i];
+          T normalizer = values_data[row];
+
+          ans_data[i] = src_data[i] - normalizer;
+        });
+  } else {
+    K2_EVAL(
+        context, ans_values.Dim(), lambda_do_normalization, (int32_t i)->void {
+          int32_t row = row_ids_data[i];
+          T normalizer = values_data[row] + eps;
+
+          ans_data[i] = src_data[i] / normalizer;
+        });
+  }
+  return ans;
 }
 
 template <typename T>
-Ragged<T> Stack(int32_t axis, int32_t num_srcs, Ragged<T> *src) {
-  NVTX_RANGE("Stack2");
-  K2_CHECK(axis == 0 || axis == 1);
+Ragged<T> Stack(int32_t axis, int32_t num_srcs, Ragged<T> **src,
+                Array1<uint32_t> *merge_map /* = nullptr */) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_GT(num_srcs, 0);
-  std::vector<Ragged<T> *> temp(num_srcs);
-  for (int32_t i = 0; i != num_srcs; ++i) temp[i] = src + i;
-  return Stack(axis, num_srcs, temp.data());
-}
-
-template <typename T>
-Ragged<T> Append(int32_t axis, int32_t num_srcs, Ragged<T> **src) {
-  NVTX_RANGE("Append1");
-  if (num_srcs == 1) return **src;
-  K2_CHECK_GT(num_srcs, 1);
-  if (axis == 1) {
-    // Transpose in Stack will check if all src->Dim0() have the same value.
-    Ragged<T> temp = Stack(axis, num_srcs, src);
-    temp.shape = RemoveAxis(temp.shape, axis);
-    return temp;
-  }
-  K2_CHECK_EQ(axis, 0) << "Append() with axis > 1 not yet supported";
+  Array1<uint32_t> merge_map_temp;
+  Array1<uint32_t> *merge_map_ptr =
+      (merge_map != nullptr ? merge_map : &merge_map_temp);
   std::vector<RaggedShape *> src_shapes(num_srcs);
   std::vector<const Array1<T> *> src_values(num_srcs);
   for (int32_t i = 0; i != num_srcs; ++i) {
     src_shapes[i] = &(src[i]->shape);
     src_values[i] = &(src[i]->values);
   }
-  RaggedShape ans_shape = Append(0, num_srcs, src_shapes.data());
-  Array1<T> ans_values = Append(num_srcs, src_values.data());
+  RaggedShape ans_shape =
+      Stack(axis, num_srcs, src_shapes.data(), merge_map_ptr);
+  Array1<T> ans_values =
+      MergeWithMap(*merge_map_ptr, num_srcs, src_values.data());
   return Ragged<T>(ans_shape, ans_values);
 }
 
 template <typename T>
-Ragged<T> Append(int32_t axis, int32_t num_srcs, Ragged<T> *src) {
-  NVTX_RANGE("Append2");
+Ragged<T> Stack(int32_t axis, int32_t num_srcs, Ragged<T> *src,
+                Array1<uint32_t> *merge_map /* = nullptr */) {
+  NVTX_RANGE(K2_FUNC);
+  K2_CHECK(axis == 0 || axis == 1);
+  K2_CHECK_GT(num_srcs, 0);
+  std::vector<Ragged<T> *> temp(num_srcs);
+  for (int32_t i = 0; i != num_srcs; ++i) temp[i] = src + i;
+  return Stack(axis, num_srcs, temp.data(), merge_map);
+}
+
+template <typename T>
+Ragged<T> Append(int32_t axis, int32_t num_srcs, Ragged<T> **src,
+                 Array1<uint32_t> *merge_map /* = nullptr*/) {
+  NVTX_RANGE(K2_FUNC);
+  K2_CHECK_GT(num_srcs, 0);
+  Array1<uint32_t> merge_map_temp;
+  Array1<uint32_t> *merge_map_ptr =
+      (merge_map != nullptr ? merge_map : &merge_map_temp);
+  std::vector<RaggedShape *> src_shapes(num_srcs);
+  std::vector<const Array1<T> *> src_values(num_srcs);
+  for (int32_t i = 0; i != num_srcs; ++i) {
+    src_shapes[i] = &(src[i]->shape);
+    src_values[i] = &(src[i]->values);
+  }
+  RaggedShape ans_shape =
+      Append(axis, num_srcs, src_shapes.data(), merge_map_ptr);
+  Array1<T> ans_values =
+      MergeWithMap(*merge_map_ptr, num_srcs, src_values.data());
+  return Ragged<T>(ans_shape, ans_values);
+}
+
+template <typename T>
+Ragged<T> Append(int32_t axis, int32_t num_srcs, Ragged<T> *src,
+                 Array1<uint32_t> *merge_map /* = nullptr*/) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK(axis == 0 || axis == 1);
   K2_CHECK_GT(num_srcs, 0);
   std::vector<Ragged<T> *> temp(num_srcs);
   for (int32_t i = 0; i != num_srcs; ++i) temp[i] = src + i;
   return Append(axis, num_srcs, temp.data());
+}
+
+template <typename T>
+Ragged<T> Merge(int32_t num_srcs, Ragged<T> **src,
+                const Array1<uint32_t> &merge_map,
+                Array1<uint32_t> *merge_map_out) {
+  NVTX_RANGE(K2_FUNC);
+  K2_CHECK_GT(num_srcs, 0);
+  Array1<uint32_t> merge_map_temp;
+  Array1<uint32_t> *merge_map_ptr =
+      (merge_map_out != nullptr ? merge_map_out : &merge_map_temp);
+  std::vector<RaggedShape *> src_shapes(num_srcs);
+  std::vector<const Array1<T> *> src_values(num_srcs);
+  for (int32_t i = 0; i != num_srcs; ++i) {
+    src_shapes[i] = &(src[i]->shape);
+    src_values[i] = &(src[i]->values);
+  }
+  RaggedShape ans_shape =
+      Merge(num_srcs, src_shapes.data(), merge_map, merge_map_ptr);
+  Array1<T> ans_values =
+      MergeWithMap(*merge_map_ptr, num_srcs, src_values.data());
+  return Ragged<T>(ans_shape, ans_values);
+}
+
+template <typename T>
+Ragged<T> RemoveValuesLeq(Ragged<T> &src, T cutoff) {
+  ContextPtr &c = src.Context();
+  Renumbering r(c, src.NumElements());
+  const T *values_data = src.values.Data();
+  char *keep = r.Keep().Data();
+  K2_EVAL(
+      c, src.NumElements(), lambda_set_keep,
+      (int32_t i)->void { keep[i] = (char)(values_data[i] > cutoff); });
+  return SubsampleRagged(src, r);
+}
+
+template <typename T>
+Ragged<T> RemoveValuesEq(Ragged<T> &src, T target) {
+  ContextPtr &c = src.Context();
+  Renumbering r(c, src.NumElements());
+  const T *values_data = src.values.Data();
+  char *keep = r.Keep().Data();
+  K2_EVAL(
+      c, src.NumElements(), lambda_set_keep,
+      (int32_t i)->void { keep[i] = (char)(values_data[i] != target); });
+  return SubsampleRagged(src, r);
 }
 
 // Recursive function that prints (part of) a ragged shape.
@@ -200,7 +285,7 @@ Ragged<T> RandomRagged(T min_value, T max_value, int32_t min_num_axes,
 // TODO(fangjun): add test cases for `order`
 template <typename T, typename Op>
 static void SortSublistsCpu(Ragged<T> *src, Array1<int32_t> *order) {
-  NVTX_RANGE("SortSublistsCpu");
+  NVTX_RANGE(K2_FUNC);
   T *p = src->values.Data();
   Op comp = Op();
 
@@ -224,12 +309,15 @@ static void SortSublistsCpu(Ragged<T> *src, Array1<int32_t> *order) {
 
 template <typename T, typename Op /* = LessThan<T> */>
 void SortSublists(Ragged<T> *src, Array1<int32_t> *order /* = nullptr */) {
-  NVTX_RANGE("SortSublists");
+  NVTX_RANGE(K2_FUNC);
   if (order) {
     K2_DCHECK(IsCompatible(src->values, *order));
     K2_DCHECK_EQ(src->values.Dim(), order->Dim());
   }
   K2_DCHECK_GE(src->NumAxes(), 2);
+
+  if (src->values.Dim() == 0) return;
+
   if (src->Context()->GetDeviceType() == kCpu) {
     SortSublistsCpu<T, Op>(src, order);
     return;
@@ -237,8 +325,7 @@ void SortSublists(Ragged<T> *src, Array1<int32_t> *order /* = nullptr */) {
 
   K2_DCHECK_EQ(src->Context()->GetDeviceType(), kCuda);
 
-  std::unique_ptr<mgpu::context_t> context =
-      GetModernGpuAllocator(src->Context()->GetDeviceId());
+  mgpu::context_t *context = GetModernGpuAllocator(src->Context());
 
   Array1<int32_t> &segment = src->shape.RowSplits(src->NumAxes() - 1);
   if (order)
@@ -247,21 +334,21 @@ void SortSublists(Ragged<T> *src, Array1<int32_t> *order /* = nullptr */) {
                                      order->Data(),       // indices
                                      src->values.Dim(),   // count
                                      segment.Data(),      // segments
-                                     segment.Dim(),       // num_segments
+                                     segment.Dim() - 1,   // num_segments
                                      Op(),                // cmp
                                      *context));          // context
   else
     K2_CUDA_SAFE_CALL(mgpu::segmented_sort(src->values.Data(),  // keys
                                            src->values.Dim(),   // count
                                            segment.Data(),      // segments
-                                           segment.Dim(),       // num_segments
+                                           segment.Dim() - 1,   // num_segments
                                            Op(),                // cmp
                                            *context));          // context
 }
 
 template <typename T>
 bool Ragged<T>::Validate(bool print_warnings) const {
-  NVTX_RANGE("Ragged::Validate");
+  NVTX_RANGE(K2_FUNC);
   if (values.Dim() != shape.NumElements()) {
     if (print_warnings) {
       K2_LOG(WARNING) << "Dimension mismatch: values.Dim() == " << values.Dim()
@@ -269,17 +356,19 @@ bool Ragged<T>::Validate(bool print_warnings) const {
     }
     return false;
   }
-  return shape.Validate();
+  return shape.Validate(print_warnings);
 }
 
-// Defined here and not in ragged.h because it needs RemoveAxis.
+// Defined here and not in ragged.h because it needs RemoveAxis(RaggedShape&,
+// int).
 template <typename T>
 Ragged<T> Ragged<T>::RemoveAxis(int32_t axis) {
-  NVTX_RANGE("Ragged::RemoveAxis");
-  K2_CHECK(axis >= 0 && axis < NumAxes());
+  NVTX_RANGE(K2_FUNC);
+  K2_CHECK(NumAxes() > 2 && axis >= 0 && axis < NumAxes() - 1);
   RaggedShape new_shape = ::k2::RemoveAxis(shape, axis);
   return Ragged<T>(new_shape, values);
 }
+
 template <typename T>
 std::istream &operator>>(std::istream &is, Ragged<T> &r) {
   // Note: the top element of 'row_splits' will end up being
@@ -308,7 +397,7 @@ std::istream &operator>>(std::istream &is, Ragged<T> &r) {
         return is;
       }
       row_splits[cur_level].push_back(
-          (cur_level + 1 >= row_splits.size())
+          (cur_level + 1 >= (int32_t)row_splits.size())
               ? static_cast<int32_t>(elems.size())
               : (row_splits[cur_level + 1].size() - 1));
       is.get();  // consume character 'c'
@@ -336,7 +425,7 @@ std::istream &operator>>(std::istream &is, Ragged<T> &r) {
     // row_splits is [ 0 ].
     row_splits.push_back(std::vector<int32_t>(1, 0));
   }
-  std::vector<RaggedShapeDim> axes(row_splits.size());
+  std::vector<RaggedShapeLayer> axes(row_splits.size());
   for (size_t i = 0; i < row_splits.size(); i++) {
     axes[i].row_splits = Array1<int32_t>(GetCpuContext(), row_splits[i]);
     axes[i].cached_tot_size = -1;
@@ -345,6 +434,227 @@ std::istream &operator>>(std::istream &is, Ragged<T> &r) {
   r.values = Array1<T>(GetCpuContext(), elems);
   K2_CHECK(r.values.Dim() == r.shape.NumElements());
   return is;
+}
+
+template <typename T>
+Ragged<T> Index(Ragged<T> &src, Ragged<int32_t> &indexes, bool remove_axis) {
+  Ragged<T> r = Index(src, 0, indexes.values);
+  RaggedShape s = ComposeRaggedShapes(indexes.shape, r.shape);
+  Ragged<T> ans(s, r.values);
+  return (remove_axis ? RemoveAxis(ans, ans.NumAxes() - 2) : ans);
+}
+
+namespace argmax_internal {
+template <typename T>
+struct Pair {
+  T t;
+  int32_t idx;
+};
+
+template <typename T>
+struct PairInputIterator {
+  explicit PairInputIterator(const T *t) : t_(t), offset_(0) {}
+  __device__ __forceinline__ PairInputIterator(const T *t, int32_t offset)
+      : t_(t), offset_(offset) {}
+  __device__ __forceinline__ Pair<T> operator[](int32_t idx) const {
+    return Pair<T>{t_[idx], idx + offset_};
+  }
+  __device__ __forceinline__ PairInputIterator operator+(int32_t offset) {
+    return PairInputIterator{t_, offset + offset_};
+  }
+  const T *t_;
+  int32_t offset_;
+};
+
+template <typename T>
+struct PairOutputIteratorDeref {  // this is what you get when you dereference
+                                  // PairOutputIterator, it pretends to be a
+                                  // Pair<T> but really only stores the `idx`
+                                  // member.
+  explicit __device__ __forceinline__ PairOutputIteratorDeref(int32_t *i)
+      : i_(i) {}
+  __device__ __forceinline__ PairOutputIteratorDeref &operator=(
+      const Pair<T> &p) {
+    *i_ = p.idx;
+    return *this;
+  }
+  int32_t *i_;
+};
+
+template <typename T>
+struct PairOutputIterator {  // outputs just the index of the pair.
+  explicit PairOutputIterator(int32_t *i) : i_(i) {}
+  __device__ __forceinline__ PairOutputIteratorDeref<T> operator[](
+      int32_t idx) const {
+    return PairOutputIteratorDeref<T>(i_ + idx);
+  }
+  __device__ __forceinline__ PairOutputIterator operator+(size_t offset) {
+    return PairOutputIterator{i_ + offset};
+  }
+  int32_t *i_;
+};
+
+template <typename T>
+struct PairMaxOp {
+  __device__ __forceinline__ Pair<T> operator()(const Pair<T> &a,
+                                                const Pair<T> &b) const {
+    // NOTE: could specialize this via a union, if T == int32_t, might be
+    // marginally faster.
+    if (a.t > b.t || (a.t == b.t && a.idx > b.idx)) return a;
+    return b;
+  }
+};
+
+}  // namespace argmax_internal
+}  // namespace k2
+
+namespace std {
+// those below typedefs are required by cub::DeviceSegmentedReduce:Reduce
+template <typename T>
+struct iterator_traits<k2::argmax_internal::PairInputIterator<T>> {
+  typedef k2::argmax_internal::Pair<T> value_type;
+};
+template <typename T>
+struct iterator_traits<k2::argmax_internal::PairOutputIterator<T>> {
+  typedef k2::argmax_internal::Pair<T> value_type;
+  typedef k2::argmax_internal::PairOutputIteratorDeref<T> reference;
+};
+}  // namespace std
+
+namespace k2 {
+template <typename T>
+void ArgMaxPerSublist(Ragged<T> &src, T initial_value, Array1<int32_t> *dst) {
+  NVTX_RANGE(K2_FUNC);
+  K2_CHECK_GE(src.NumAxes(), 2);
+  K2_CHECK(IsCompatible(src.shape, *dst));
+
+  int32_t last_axis = src.NumAxes() - 1;
+  const Array1<int32_t> &row_splits_array = src.RowSplits(last_axis);
+  int32_t num_rows = row_splits_array.Dim() - 1;
+  K2_CHECK_EQ(num_rows, dst->Dim());
+
+  ContextPtr &c = src.Context();
+  const int32_t *row_splits = row_splits_array.Data();
+  const T *values_data = src.values.Data();
+  int32_t *output_data = dst->Data();
+
+  if (c->GetDeviceType() == kCpu) {
+    int32_t j = row_splits[0];
+    for (int32_t i = 0; i < num_rows; ++i) {
+      T val = initial_value;
+      int32_t idx = -1;
+
+      int32_t row_end = row_splits[i + 1];
+      for (; j < row_end; ++j) {
+        T elem = values_data[j];
+        if (elem >= val) {
+          val = elem;
+          idx = j;
+        }
+      }
+      output_data[i] = idx;
+    }
+  } else {
+    K2_CHECK_EQ(c->GetDeviceType(), kCuda);
+    argmax_internal::PairInputIterator<T> input_iter(values_data);
+    argmax_internal::PairOutputIterator<T> output_iter(output_data);
+    argmax_internal::PairMaxOp<T> op;
+    argmax_internal::Pair<T> initial_pair{initial_value, -1};
+
+    // This code is based on the example here:
+    // https://nvlabs.github.io/cub/structcub_1_1_device_segmented_reduce.html
+    std::size_t temp_storage_bytes = 0;
+
+    // the first time is to determine temporary device storage requirements
+    K2_CUDA_SAFE_CALL(cub::DeviceSegmentedReduce::Reduce(
+        nullptr, temp_storage_bytes, input_iter, output_iter, num_rows,
+        row_splits, row_splits + 1, op, initial_pair, c->GetCudaStream()));
+    Array1<int8_t> d_temp_storage(c, temp_storage_bytes);
+    K2_CUDA_SAFE_CALL(cub::DeviceSegmentedReduce::Reduce(
+        d_temp_storage.Data(), temp_storage_bytes, input_iter, output_iter,
+        num_rows, row_splits, row_splits + 1, op, initial_pair,
+        c->GetCudaStream()));
+  }
+}
+
+template <typename T>
+void SegmentedExclusiveSum(Ragged<T> &src, Array1<T> *dst) {
+  ContextPtr c = GetContext(src, *dst);
+  int32_t dim = dst->Dim();
+  K2_CHECK_EQ(src.NumElements(), dim);
+
+  const int32_t *row_splits_data = src.RowSplits(src.NumAxes() - 1).Data();
+  const int32_t *row_ids_data = src.RowIds(src.NumAxes() - 1).Data();
+  T *dst_data = dst->Data();
+  if (c->GetDeviceType() == kCuda) {
+    // there's roundoff problem for float type with the below implementation in
+    // else branch.
+    if (std::is_same<float, T>::value || std::is_same<double, T>::value) {
+      // flags is similar to `tails` (see concepts in k2/csrc/utils)
+      // But it indicates `heads` here. The very first segment always
+      // starts at zero, so flags[0] is always 0.
+      Array1<uint32_t> flags(c, dim);
+      uint32_t *flags_data = flags.Data();
+      K2_EVAL(
+          c, dim, set_flags, (int32_t idx01)->void {
+            int32_t idx0 = row_ids_data[idx01];
+            int32_t idx0x = row_splits_data[idx0];
+            int32_t idx0x_next = row_splits_data[idx0 + 1];
+            if (idx0x < idx0x_next) {
+              if (idx01 == idx0x)
+                flags_data[idx01] = idx01 == 0 ? 0 : 1;
+              else
+                flags_data[idx01] = 0;
+            }
+          });
+      SegmentedExclusiveSum(c, src.values.Data(), dim, flags_data, dst->Data());
+    } else {
+      Array1<T> exclusive_sum(c, dim);
+      ExclusiveSum(src.values, &exclusive_sum);
+      const T *exclusive_sum_data = exclusive_sum.Data();
+      K2_EVAL(
+          c, dim, set_ans_values, (int32_t idx01)->void {
+            int32_t idx0 = row_ids_data[idx01];
+            int32_t idx0x = row_splits_data[idx0];
+            dst_data[idx01] =
+                exclusive_sum_data[idx01] - exclusive_sum_data[idx0x];
+          });
+    }
+  } else {
+    // Though the above code for Cuda would be working for cpu as well, we still
+    // add an implementation for cpu here as it only needs one iteration
+    K2_CHECK_EQ(c->GetDeviceType(), kCpu);
+    const T *src_values_data = src.values.Data();
+    int32_t dim0 = src.TotSize(src.NumAxes() - 2);
+    for (int32_t i = 0; i != dim0; ++i) {
+      T sum = 0;
+      int32_t row_begin = row_splits_data[i];
+      int32_t row_end = row_splits_data[i + 1];
+      for (int32_t n = row_begin; n != row_end; ++n) {
+        auto prev = src_values_data[n];  // save a copy since src.values and
+                                         // dest may share the underlying memory
+        dst_data[n] = sum;
+        sum += prev;
+      }
+    }
+  }
+}
+
+template <typename T>
+Ragged<T> CreateRagged2(const std::vector<std::vector<T>> &vecs) {
+  std::vector<T> values;
+  std::vector<int32_t> row_splits;
+  row_splits.reserve(vecs.size() + 1);
+  row_splits.push_back(0);
+  for (const auto &vec : vecs) {
+    values.insert(values.end(), vec.begin(), vec.end());
+    row_splits.push_back(values.size());
+  }
+  ContextPtr context = GetCpuContext();
+  Array1<int32_t> row_splits_array(context, row_splits);
+  RaggedShape shape = RaggedShape2(&row_splits_array, nullptr, values.size());
+  Array1<T> values_array(context, values);
+  return Ragged<T>(shape, values_array);
 }
 
 }  // namespace k2

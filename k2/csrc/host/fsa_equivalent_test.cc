@@ -1,11 +1,6 @@
 /**
- * @brief
- * fsa_equivalent_test
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Haowen Qiu)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -95,26 +90,23 @@ TEST(FsaEquivalent, IsRandEquivalent) {
 
   {
     // same fsas
-    std::vector<Arc> arcs_a = {
-        {0, 1, 1, 0}, {0, 2, 2, 0}, {1, 2, 3, 0}, {1, 3, 4, 0}, {2, 3, 5, 0},
-    };
-    FsaCreator fsa_creator_a(arcs_a, 3);
+    std::vector<Arc> arcs_a = {{0, 1, 1, 0}, {0, 2, 2, 0}, {1, 2, 3, 0},
+                               {1, 3, 4, 0}, {2, 3, 5, 0}, {3, 4, -1, 0}};
+    FsaCreator fsa_creator_a(arcs_a, 4);
     const auto &a = fsa_creator_a.GetFsa();
     bool status = IsRandEquivalent(a, a);
     EXPECT_TRUE(status);
   }
 
   {
-    std::vector<Arc> arcs_a = {
-        {0, 1, 1, 0}, {0, 2, 2, 0}, {0, 3, 8, 0}, {1, 4, 4, 0}, {2, 4, 5, 0},
-    };
-    FsaCreator fsa_creator_a(arcs_a, 4);
+    std::vector<Arc> arcs_a = {{0, 1, 1, 0}, {0, 2, 2, 0}, {0, 3, 8, 0},
+                               {1, 4, 4, 0}, {2, 4, 5, 0}, {4, 5, -1, 0}};
+    FsaCreator fsa_creator_a(arcs_a, 5);
     const auto &a = fsa_creator_a.GetFsa();
 
-    std::vector<Arc> arcs_b = {
-        {0, 2, 1, 0}, {0, 1, 2, 0}, {0, 3, 9, 0}, {1, 4, 5, 0}, {2, 4, 4, 0},
-    };
-    FsaCreator fsa_creator_b(arcs_b, 4);
+    std::vector<Arc> arcs_b = {{0, 2, 1, 0}, {0, 1, 2, 0}, {0, 3, 9, 0},
+                               {1, 4, 5, 0}, {2, 4, 4, 0}, {4, 5, -1, 0}};
+    FsaCreator fsa_creator_b(arcs_b, 5);
     const auto &b = fsa_creator_b.GetFsa();
 
     bool status = IsRandEquivalent(a, b);

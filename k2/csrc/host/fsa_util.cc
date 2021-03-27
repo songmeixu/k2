@@ -1,12 +1,7 @@
 /**
- * @brief
- * fsa_util
- *
- * @copyright
  * Copyright (c)  2020  Mobvoi Inc.        (authors: Fangjun Kuang)
  *                      Xiaomi Corporation (authors: Haowen Qiu)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -25,6 +20,8 @@
 #include "k2/csrc/host/connect.h"
 #include "k2/csrc/host/properties.h"
 #include "k2/csrc/host/util.h"
+#include "k2/csrc/macros.h"
+#include "k2/csrc/nvtx.h"
 
 namespace {
 
@@ -139,6 +136,7 @@ void SplitStringToVector(const std::string &in, const char *delim,
 namespace k2host {
 
 void GetEnteringArcs(const Fsa &fsa, Array2<int32_t *, int32_t> *arc_indexes) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(arc_indexes, nullptr);
   K2_CHECK_EQ(arc_indexes->size1, fsa.size1);
   K2_CHECK_EQ(arc_indexes->size2, fsa.size2);
@@ -169,6 +167,7 @@ void GetEnteringArcs(const Fsa &fsa, Array2<int32_t *, int32_t> *arc_indexes) {
 void GetArcWeights(const float *arc_weights_in,
                    const Array2<int32_t *, int32_t> &arc_map,
                    float *arc_weights_out) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(arc_weights_in, nullptr);
   K2_CHECK_NE(arc_weights_out, nullptr);
   for (int32_t i = 0; i != arc_map.size1; ++i) {
@@ -183,6 +182,7 @@ void GetArcWeights(const float *arc_weights_in,
 
 void GetArcWeights(const float *arc_weights_in, const int32_t *arc_map,
                    int32_t num_arcs, float *arc_weights_out) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(arc_weights_in, nullptr);
   K2_CHECK_NE(arc_weights_out, nullptr);
   for (int32_t i = 0; i != num_arcs; ++i) {
@@ -192,6 +192,7 @@ void GetArcWeights(const float *arc_weights_in, const int32_t *arc_map,
 
 void ReorderArcs(const std::vector<Arc> &arcs, Fsa *fsa,
                  std::vector<int32_t> *arc_map /*= nullptr*/) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(fsa, nullptr);
   if (arc_map != nullptr) arc_map->clear();
 
@@ -201,17 +202,16 @@ void ReorderArcs(const std::vector<Arc> &arcs, Fsa *fsa,
 
   using ArcWithIndex = std::pair<Arc, int32_t>;
   int32_t arc_id = 0;
-  std::vector<std::vector<ArcWithIndex>> vec;
+  std::size_t num_states = fsa->size1;
+  std::vector<std::vector<ArcWithIndex>> vec(num_states);
   for (const auto &arc : arcs) {
     auto src_state = arc.src_state;
     auto dest_state = arc.dest_state;
-    auto new_size = std::max(src_state, dest_state);
-    if (new_size >= vec.size()) vec.resize(new_size + 1);
+    K2_CHECK_LT(src_state, num_states);
+    K2_CHECK_LT(dest_state, num_states);
     vec[src_state].push_back({arc, arc_id++});
   }
 
-  std::size_t num_states = vec.size();
-  K2_CHECK_EQ(num_states, fsa->size1);
   std::vector<int32_t> arc_map_out;
   arc_map_out.reserve(arcs.size());
 
@@ -229,6 +229,7 @@ void ReorderArcs(const std::vector<Arc> &arcs, Fsa *fsa,
 
 void ConvertIndexes1(const int32_t *arc_map, int32_t num_arcs,
                      int64_t *indexes_out) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(arc_map, nullptr);
   K2_CHECK_GE(num_arcs, 0);
   K2_CHECK_NE(indexes_out, nullptr);
@@ -237,6 +238,7 @@ void ConvertIndexes1(const int32_t *arc_map, int32_t num_arcs,
 
 void GetArcIndexes2(const Array2<int32_t *, int32_t> &arc_map,
                     int64_t *indexes1, int64_t *indexes2) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(indexes1, nullptr);
   K2_CHECK_NE(indexes2, nullptr);
   std::copy(arc_map.data + arc_map.indexes[0],
@@ -250,6 +252,7 @@ void GetArcIndexes2(const Array2<int32_t *, int32_t> &arc_map,
 }
 
 void StringToFsa::GetSizes(Array2Size<int32_t> *fsa_size) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(fsa_size, nullptr);
   fsa_size->size1 = fsa_size->size2 = 0;
 
@@ -294,6 +297,7 @@ void StringToFsa::GetSizes(Array2Size<int32_t> *fsa_size) {
 }
 
 void StringToFsa::GetOutput(Fsa *fsa_out) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(fsa_out, nullptr);
   K2_CHECK_EQ(fsa_out->size1, arcs_.size());
 
@@ -307,6 +311,7 @@ void StringToFsa::GetOutput(Fsa *fsa_out) {
 }
 
 std::string FsaToString(const Fsa &fsa) {
+  NVTX_RANGE(K2_FUNC);
   if (IsEmpty(fsa)) return "";
 
   static constexpr const char *kSep = " ";
@@ -332,6 +337,7 @@ RandFsaOptions::RandFsaOptions() {
 }
 
 void RandFsaGenerator::GetSizes(Array2Size<int32_t> *fsa_size) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(fsa_size, nullptr);
   fsa_size->size1 = fsa_size->size2 = 0;
 
@@ -407,6 +413,7 @@ void RandFsaGenerator::GetSizes(Array2Size<int32_t> *fsa_size) {
 }
 
 void RandFsaGenerator::GetOutput(Fsa *fsa_out) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_NE(fsa_out, nullptr);
 
   const auto &fsa = fsa_creator_.GetFsa();
@@ -416,8 +423,9 @@ void RandFsaGenerator::GetOutput(Fsa *fsa_out) {
   std::copy(fsa.data, fsa.data + fsa.size2, fsa_out->data);
 }
 
-void CreateFsa(const std::vector<Arc> &arcs, Fsa *fsa,
-               std::vector<int32_t> *arc_map /*=null_ptr*/) {
+void CreateTopSortedFsa(const std::vector<Arc> &arcs, Fsa *fsa,
+                        std::vector<int32_t> *arc_map /*=null_ptr*/) {
+  NVTX_RANGE(K2_FUNC);
   using dfs::DfsState;
   using dfs::kNotVisited;
   using dfs::kVisited;
@@ -503,6 +511,66 @@ void CreateFsa(const std::vector<Arc> &arcs, Fsa *fsa,
       arc_map_out.push_back(arc_with_index.second);
     }
   }
+  fsa->indexes[num_states] = num_arcs;
+  if (arc_map != nullptr) arc_map->swap(arc_map_out);
+}
+
+void CreateFsa(const std::vector<Arc> &arcs, Fsa *fsa,
+               std::vector<int32_t> *arc_map /*=null_ptr*/) {
+  NVTX_RANGE(K2_FUNC);
+  K2_CHECK_NE(fsa, nullptr);
+  if (arcs.empty()) return;
+
+  int32_t old_final_state = -1;
+  using ArcWithIndex = std::pair<Arc, int32_t>;
+  int32_t arc_id = 0;
+  std::vector<std::vector<ArcWithIndex>> state_to_arcs;  // indexed by states
+  for (const auto &arc : arcs) {
+    if (arc.label == -1) {
+      // if old_final_state != -1, there must be arc.dest_state ==
+      // old_final_state, as we suppose there is only one final state.
+      K2_CHECK(old_final_state == -1 || arc.dest_state == old_final_state);
+      old_final_state = arc.dest_state;
+    }
+    int32_t src_state = arc.src_state;
+    int32_t dest_state = arc.dest_state;
+    int32_t new_size = std::max(src_state, dest_state);
+    if (new_size >= state_to_arcs.size()) state_to_arcs.resize(new_size + 1);
+    state_to_arcs[src_state].push_back({arc, arc_id++});
+  }
+
+  int32_t num_states = static_cast<int32_t>(state_to_arcs.size());
+  K2_CHECK_EQ(fsa->size1, num_states);
+  K2_CHECK_EQ(fsa->size2, arcs.size());
+  // there's no leaving arc from final state
+  K2_CHECK_EQ(state_to_arcs[old_final_state].size(), 0);
+
+  int32_t final_state = num_states - 1;
+  std::vector<int32_t> new_to_old(num_states);
+  // we move old_final_state to the end so that final state will be
+  // the largest state.
+  for (int32_t i = 0; i < old_final_state; ++i) new_to_old[i] = i;
+  for (int32_t i = old_final_state; i < final_state; ++i) new_to_old[i] = i + 1;
+  new_to_old[final_state] = old_final_state;
+  std::vector<int32_t> old_to_new(num_states);
+  for (int32_t i = 0; i != num_states; ++i) old_to_new[new_to_old[i]] = i;
+
+  std::vector<int32_t> arc_map_out;
+  arc_map_out.reserve(arcs.size());
+
+  int32_t num_arcs = 0;
+  for (int32_t i = 0; i != num_states; ++i) {
+    int32_t old_state = new_to_old[i];
+    fsa->indexes[i] = num_arcs;
+    for (auto arc_with_index : state_to_arcs[old_state]) {
+      auto &arc = arc_with_index.first;
+      arc.src_state = i;
+      arc.dest_state = old_to_new[arc.dest_state];
+      fsa->data[num_arcs++] = arc;
+      arc_map_out.push_back(arc_with_index.second);
+    }
+  }
+
   fsa->indexes[num_states] = num_arcs;
   if (arc_map != nullptr) arc_map->swap(arc_map_out);
 }

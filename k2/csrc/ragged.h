@@ -1,12 +1,7 @@
 /**
- * @brief
- * ragged
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Daniel Povey
  *                                                   Haowen Qiu)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -17,22 +12,22 @@
 #include <utility>
 #include <vector>
 
-#include "k2/csrc/algorithms.h"
 #include "k2/csrc/array.h"
 #include "k2/csrc/context.h"
-#include "k2/csrc/eval.h"
 #include "k2/csrc/log.h"
-#include "k2/csrc/utils.h"
 
 namespace k2 {
 
-// Caution, RaggedShapeDim is mostly for internal use and users should not
-// generally interact with it directly.
+// Caution, RaggedShapeLayer is mostly for internal use and users should not
+// generally interact with it directly.  A layer represents the connection
+// between one axis and the next; a RaggedShape with a single layer is the
+// minimal RaggedShape.
+//
 // Note: row_splits is of size num_rows + 1 and row_ids is of size
 // num_elements.
-struct RaggedShapeDim {
+struct RaggedShapeLayer {
   // Search for "row_splits concept" in utils.h for explanation.  row_splits
-  // is required; it must always be nonempty for a RaggedShapeDim to be valid.
+  // is required; it must always be nonempty for a RaggedShapeLayer to be valid.
   Array1<int32_t> row_splits;
   // Search for "row_ids concept" in utils.h for explanation
   Array1<int32_t> row_ids;
@@ -52,27 +47,23 @@ struct RaggedShapeDim {
 class RaggedShapeIndexIterator;
 class RaggedShape;
 // Will write the elements as x, e.g. "[ [ x x ] [x] ]"
-std::ostream &operator<<(std::ostream &stream,
-                         const RaggedShape &shape);
-
+std::ostream &operator<<(std::ostream &stream, const RaggedShape &shape);
 
 // Reader from string, expects "x" (i.e. the letter x) for the elements, e.g. "[
 // [ x x ] [ x x x ] ]".  The spaces are optional.  Will crash if the input was
 // invalid (e.g. mismatched brackets or inconsistent depth).
-std::istream &operator>>(std::istream &stream,
-                         RaggedShape &shape);
-
+std::istream &operator>>(std::istream &stream, RaggedShape &shape);
 
 class RaggedShape {
  public:
   int32_t Dim0() const {
-    K2_CHECK_GT(axes_.size(), 0);
-    return axes_[0].row_splits.Dim() - 1;
+    K2_CHECK_GT(layers_.size(), 0);
+    return layers_[0].row_splits.Dim() - 1;
   }
   /* Return the  total size on this axis.  Requires 0 <= axis < NumAxes() and
      for axis=0 the returned value is the same as Dim0().
      Caution: we use const_cast inside this function as it may actually modify
-     the cached_tot_size members of RaggedShapeDim if not set.
+     the cached_tot_size members of RaggedShapeLayer if not set.
   */
   int32_t TotSize(int32_t axis) const;
 
@@ -82,6 +73,9 @@ class RaggedShape {
      `other`, not `*this`, if you make many calls to Append().  This is due to
      the policy used in Region::Extend(), where it at least doubles the size
      each time, similar to std::vector.
+     Be very careful with this, because many operations on Ragged tensors will
+     silently share memory (there is normally an implicit assumption that
+     the row_splits and row_indexes are constant).
   */
   void Append(const RaggedShape &other);
 
@@ -98,15 +92,15 @@ class RaggedShape {
   Array1<int32_t> &RowSplits(int32_t axis) {
     K2_CHECK_GT(axis, 0);
     K2_CHECK_LT(axis, NumAxes());
-    // Note row_splits is always nonempty for valid RaggedShapeDim.
-    return axes_[axis - 1].row_splits;
+    // Note row_splits is always nonempty for valid RaggedShapeLayer.
+    return layers_[axis - 1].row_splits;
   }
 
   const Array1<int32_t> &RowSplits(int32_t axis) const {
     K2_CHECK_GT(axis, 0);
     K2_CHECK_LT(axis, NumAxes());
-    // Note row_splits is always nonempty for valid RaggedShapeDim.
-    return axes_[axis - 1].row_splits;
+    // Note row_splits is always nonempty for valid RaggedShapeLayer.
+    return layers_[axis - 1].row_splits;
   }
 
   /*
@@ -118,17 +112,19 @@ class RaggedShape {
     return const_cast<RaggedShape *>(this)->RowIds(axis);
   }
 
-  int32_t NumAxes() const { return static_cast<int32_t>(axes_.size()) + 1; }
+  int32_t NumAxes() const { return static_cast<int32_t>(layers_.size()) + 1; }
+
+  int32_t NumLayers() const { return static_cast<int32_t>(layers_.size()); }
 
   // Gives max size of any list on the provided axis,
   // with 0 < axis < NumAxes().  Equals max difference between successive
   // row_splits on that axis.
   int32_t MaxSize(int32_t axis);
 
-  ContextPtr &Context() const { return axes_[0].row_splits.Context(); }
+  ContextPtr &Context() const { return layers_[0].row_splits.Context(); }
 
   /*
-    It is an error to call this if this.NumAxes() < 2.  This will return
+    It is an error to call this if this.NumAxes() <= 2.  This will return
     a RaggedShape with one fewer axis, containing only the elements of
     *this for which the value on axis `axis` is i.  CAUTION:
     currently this only works for `axis == 0`.
@@ -150,29 +146,29 @@ class RaggedShape {
    */
   int32_t operator[](const std::vector<int32_t> &indexes);
 
-
-  // Constructor from string; the elements should be readable from ostream to
-  // something of type T.  E.g.  elements, e.g. src="[ [ 1 2 ] [ 0 4 5] ]", if T
-  // is an integer type.  Intended for testing purposes.
-  template <typename T>
-  explicit RaggedShape(const std::string &src, Array1<T> *contents);
-
-
   RaggedShapeIndexIterator Iterator();
 
   // TODO(dan): will at some point make it so check = false is the default.
-  explicit RaggedShape(const std::vector<RaggedShapeDim> &axes,
+  explicit RaggedShape(const std::vector<RaggedShapeLayer> &layers,
                        bool check = !internal::kDisableDebug)
-      : axes_(axes) {
-    if (check) Check();
+      : layers_(layers) {
+    // the check can be disabled by settin the environment variable
+    // K2_DISABLE_CHECKS.
+    if (check && !internal::DisableChecks()) Check();
   }
 
   explicit RaggedShape(const std::string &src) {
     std::istringstream is(src);
     is >> *this >> std::ws;
     if (!is.eof() || is.fail())
-      K2_LOG(FATAL) <<  "Failed to construct RaggedShape from string: " << src;
+      K2_LOG(FATAL) << "Failed to construct RaggedShape from string: " << src;
   }
+
+  // Construct from context and string.  This uses delegating constructors, (a
+  // c++11 feature), and an explicitly constructed RaggedShape
+  // "RaggedShape(src)"
+  RaggedShape(ContextPtr context, const std::string &src)
+      : RaggedShape(RaggedShape(src).To(context)) {}
 
   // A RaggedShape constructed this way will not be a valid RaggedShape.
   // The constructor is provided so you can immediately assign to it.
@@ -184,12 +180,15 @@ class RaggedShape {
 
   RaggedShape(const RaggedShape &other) = default;
   // Move constructor
-  RaggedShape(RaggedShape &&other): axes_(std::move(other.axes_)) { }
+  RaggedShape(RaggedShape &&other) : layers_(std::move(other.layers_)) {}
   RaggedShape &operator=(const RaggedShape &other) = default;
 
-  // Axes() is intended for internal-ish use; users shouldn't really have to
+  // Layers() is intended for internal-ish use; users shouldn't really have to
   // interact with it.
-  const std::vector<RaggedShapeDim> &Axes() const { return axes_; }
+  const std::vector<RaggedShapeLayer> &Layers() const { return layers_; }
+  // CAUTION: you probably shouldn't use this unless you really know what you
+  // are doing.
+  std::vector<RaggedShapeLayer> &Layers() { return layers_; }
 
   // Check the RaggedShape for consistency; die on failure.
   void Check() {
@@ -209,13 +208,42 @@ class RaggedShape {
   // a fixed length array (more efficient)
 
   // indexed by axis-index minus one... axis 0 is special, its dim
-  // equals axes_[0].row_splits.Dim()-1.
-  std::vector<RaggedShapeDim> axes_;
+  // equals layers_[0].row_splits.Dim()-1.
+  std::vector<RaggedShapeLayer> layers_;
+};
+
+template <typename T, int MAX_DIM>
+struct ArrayAccessor {
+  T data[MAX_DIM];
+};
+
+// call this variable `xxx_row_splits_acc`
+template <int MAX_LAYERS>
+struct RowSplitsAccessor {
+  int32_t *ptrs[MAX_LAYERS] = {nullptr};  // these are indexed by layer, from 0.
+
+  // row_splits_acc(0) == shape.RowSplits(1), for instance.
+  __host__ __device__ int32_t *operator()(int32_t layer) const {
+    return ptrs[layer];
+  }
+
+  explicit RowSplitsAccessor(RaggedShape &src);
+};
+
+// call this variable `xxx_row_ids_acc`
+template <int MAX_LAYERS>
+struct RowIdsAccessor {
+  int32_t *ptrs[MAX_LAYERS] = {nullptr};  // these are indexed by layer, from 0.
+  // row_ids_acc(0) == shape.RowIds(1), for instance.
+  __host__ __device__ int32_t *operator()(int32_t layer) const {
+    return ptrs[layer];
+  }
+
+  explicit RowIdsAccessor(RaggedShape &src);
 };
 
 // prints a RaggedShape, for debug purposes.  May change later how this works.
-std::ostream &operator<<(std::ostream &stream,
-                         const RaggedShape &shape);
+std::ostream &operator<<(std::ostream &stream, const RaggedShape &shape);
 
 /*
   This is intended only for use in debugging.  It only works if the shape is
@@ -233,14 +261,13 @@ class RaggedShapeIndexIterator {
     linear_idx_++;
     if (!Done()) UpdateVec();
   }
-  bool Done() { return linear_idx_ == num_elements_; }
+  bool Done() const { return linear_idx_ == num_elements_; }
 
-  explicit RaggedShapeIndexIterator(RaggedShape &shape)
-      : shape_(shape),
-        linear_idx_(0),
+  explicit RaggedShapeIndexIterator(const RaggedShape &shape)
+      : linear_idx_(0),
         idx_(shape.NumAxes()),
         num_elements_(shape.NumElements()) {
-    K2_CHECK_EQ(shape_.Context()->GetDeviceType(), kCpu);
+    K2_CHECK_EQ(shape.Context()->GetDeviceType(), kCpu);
     for (int32_t i = 0; i + 1 < shape.NumAxes(); ++i) {
       row_splits_.push_back(shape.RowSplits(i + 1).Data());
       row_ids_.push_back(shape.RowIds(i + 1).Data());
@@ -269,7 +296,6 @@ class RaggedShapeIndexIterator {
   };
   std::vector<const int32_t *> row_splits_;
   std::vector<const int32_t *> row_ids_;
-  RaggedShape &shape_;
   int32_t linear_idx_;
   std::vector<int32_t> idx_;
   const int32_t num_elements_;
@@ -286,28 +312,34 @@ struct Ragged {
     K2_CHECK(IsCompatible(shape, values));
     K2_CHECK_EQ(shape.NumElements(), values.Dim());
   }
+
+  explicit Ragged(const RaggedShape &shape)
+      : shape(shape), values(shape.Context(), shape.NumElements()) {}
+
   // Defined in ragged_ops_inl.h
   explicit Ragged(const std::string &src) {
     std::istringstream is(src);
     is >> *this >> std::ws;
     if (!is.eof() || is.fail())
-      K2_LOG(FATAL) <<  "Failed to construct Ragged array from string: " << src;
+      K2_LOG(FATAL) << "Failed to construct Ragged array from string: " << src;
   }
+
+  // Construct from context and string.  This uses delegating constructors,
+  // (a c++11 feature), and an explicitly constructed Ragged<T>
+  // "Ragged<T>(src)"
+  Ragged(ContextPtr context, const std::string &src)
+      : Ragged(Ragged<T>(src).To(context)) {}
 
   // Default constructor will not leave this a valid Ragged object, you
   // shouldn't do anything with it.  Both members will be initialized with
   // default constructors.
   Ragged() = default;
 
-  // Note: 'values' will be uninitialized.
-  explicit Ragged(const RaggedShape &shape)
-      : shape(shape), values(shape.Context(), shape.NumElements()) {}
-
   Ragged &operator=(const Ragged<T> &src) = default;
   Ragged(const Ragged<T> &src) = default;
   // Move constructor
   Ragged(Ragged<T> &&src) = default;
-
+  Ragged &operator=(Ragged<T> &&src) = default;
 
   // This will only work on the CPU, and is intended for use in testing code.
   // See also member-function Index().
@@ -332,7 +364,7 @@ struct Ragged {
   bool Validate(bool print_warnings = true) const;
 
   /*
-    It is an error to call this if this.shape.NumAxes() < 2.  This will return
+    It is an error to call this if this.shape.NumAxes() <= 2.  This will return
     a Ragged<T> with one fewer axis, containing only the elements of
     *this for which the value on the provided axis is i; it will share
     the underlying data with `*this` where possible. CAUTION: currently this
@@ -350,9 +382,20 @@ struct Ragged {
                      values.Range(values_offset, sub_shape.NumElements()));
   }
 
-  // Note *this is conceptually unchanged by this operation but non-const
-  // because this->shape's row-ids may need to be generated.
-  // This function is defined in ragged_ops_inl.h.
+  /*
+    Return a version of `*this` with one axis removed, done by appending
+    lists (this axis is combined with the following axis).  Effectively removes
+    element numbered `axis` from the vector of tot_sizes `[ src.TotSize(0),
+    src.TotSize(1), ... src.TotSize(axis - 1) ]`
+
+    Note *this is conceptually unchanged by this operation but non-const
+    because this->shape's row-ids may need to be generated.
+    This function is defined in ragged_ops_inl.h.
+
+        @param [in] axis  Axis to remove.  Requires 0 <= axis < NumAxes() - 1.
+        @return  Returns the modified ragged tensor, which will share the same
+            `values` and some of the same shape metdata as `*this`.
+  */
   Ragged<T> RemoveAxis(int32_t axis);
 
   Ragged<T> To(ContextPtr ctx) const {
@@ -362,11 +405,9 @@ struct Ragged {
   }
 
   // There is no need to clone the shape because it's a kind of convention that
-  // Array1's that are the row_ids or row_splits of a Ragged object are not mutable
-  // so they can be re-used.
-  Ragged<T> Clone() const {
-    return Ragged<T>(shape, values.Clone());
-  }
+  // Array1's that are the row_ids or row_splits of a Ragged object are not
+  // mutable so they can be re-used.
+  Ragged<T> Clone() const { return Ragged<T>(shape, values.Clone()); }
 };
 
 // e.g. will produce something like "[ [ 3 4 ] [ 1 ] ]".
@@ -379,5 +420,9 @@ template <typename T>
 std::istream &operator>>(std::istream &stream, Ragged<T> &r);
 
 }  // namespace k2
+
+#define IS_IN_K2_CSRC_RAGGED_H_
+#include "k2/csrc/ragged_inl.h"
+#undef IS_IN_K2_CSRC_RAGGED_H_
 
 #endif  // K2_CSRC_RAGGED_H_

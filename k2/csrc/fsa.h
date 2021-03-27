@@ -1,12 +1,7 @@
 /**
- * @brief
- * fsa
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Daniel Povey)
  *                      Guoguo Chen
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -34,13 +29,23 @@ struct Arc {
         label(label),
         score(score) {}
 
-  bool operator<(const Arc &other) const {
+  __host__ __device__ __forceinline__ bool operator==(const Arc &other) const {
+    return src_state == other.src_state && dest_state == other.dest_state &&
+           label == other.label && fabsf(score - other.score) < 1e-5;
+  }
+
+  __host__ __device__ __forceinline__ bool operator!=(const Arc &other) const {
+    return !(*this == other);
+  }
+
+  __host__ __device__ __forceinline__ bool operator<(const Arc &other) const {
     // Compares `label` first, then `dest_state`;
     // compare label as unsigned so -1 comes after other symbols, since some
     // algorithms may require epsilons to be first.
-    return std::tie(reinterpret_cast<const uint32_t &>(label), dest_state) <
-           std::tie(reinterpret_cast<const uint32_t &>(other.label),
-                    other.dest_state);
+    if (label != other.label)
+      return static_cast<uint32_t>(label) < static_cast<uint32_t>(other.label);
+    else
+      return dest_state < other.dest_state;
   }
 };
 
@@ -76,9 +81,9 @@ enum FsaBasicProperties {
                                          // co-accessible, i.e. states with no
                                          // arcs entering them
   kFsaPropertiesMaybeCoaccessible =
-      0x0100,                           // True if there are no obvious signs of
-                                        // states not being co-accessible, i.e.
-                                        // i.e. states with no arcs leaving them
+      0x0100,  // True if there are no obvious signs of
+               // states not being co-accessible, i.e.
+               // i.e. states with no arcs leaving them
   kFsaAllProperties = 0x01FF
 };
 
@@ -129,10 +134,10 @@ struct DenseFsaVec {
   // The following variable was removed and can be obtained as scores.Dim1().
   // int32_t num_cols;
 
-  // `scores` is a contiguous matrix of dimension shape.TotSize1()
-  // by num_cols (where num_cols == num_symbols+1); the indexes into it are
-  // [row_idx, symbol+1], where row_ids is an ind_01 w.r.t. `shape` (see naming
-  // convention explained in utils.h).
+  // `scores` is a matrix of shape (shape.TotSize1(), num_cols), where num_cols
+  // == num_symbols+1); the indexes into it are [row_idx, symbol+1], where
+  // row_ids is an ind_01 w.r.t. `shape` (see naming convention explained in
+  // utils.h).
   //
   //  You can access scores[row_idx,symbol+1] as
   //  scores.Data()[row_ids*scores.Dim1() + symbol+1]
@@ -153,21 +158,27 @@ struct DenseFsaVec {
       : shape(shape), scores(scores) {
     K2_CHECK(IsCompatible(shape, scores));
     K2_CHECK_EQ(shape.NumElements(), scores.Dim0());
+    K2_CHECK_EQ(shape.NumAxes(), 2);
   }
-  ContextPtr Context() const { return shape.Context(); }
+  ContextPtr &Context() const { return shape.Context(); }
   DenseFsaVec To(ContextPtr c) const {
     return DenseFsaVec(shape.To(c), scores.To(c));
   }
+  /* Indexing operator that rearranges the sequences, analogous to: RaggedShape
+     Index(RaggedShape &src, const Array1<int32_t> &indexes).  Currently just
+     used for testing.
+   */
+  DenseFsaVec operator[](const Array1<int32_t> &indexes);
 };
 
 std::ostream &operator<<(std::ostream &os, const DenseFsaVec &dfsavec);
 
 /*
-  Create an FSA from a Tensor.  The Tensor is expected to be an N by 4 tensor of
+  Create an FSA from a Tensor.  The Tensor t is expected to be an N by 4 tensor of
   int32_t, where N is the number of arcs (the format is src_state, dest_state,
   symbol, cost).  The cost is not really an int32_t, it is a float.  This code
   will print an error message and output 'true' to 'error', and return an empty
-  FSA (with no states or arcs) if 't' was not interpretable as a valid FSA.
+  FSA (with no states or arcs) if t was not interpretable as a valid FSA.
   These requirements for a valid FSA are:
 
     - src_state values on the arcs must be non-decreasing
@@ -194,13 +205,51 @@ std::ostream &operator<<(std::ostream &os, const DenseFsaVec &dfsavec);
 */
 Fsa FsaFromTensor(Tensor &t, bool *error);
 
-Fsa FsaFromArray1(Array1<Arc> &arc, bool *error);
+/*
+  Create an FSA from a Array1. The Array1 is expected to has N arcs (the format
+  is src_state, dest_state, symbol, cost). The cost is not really an int32_t, it
+  is a float. This code will print an error message and output 'true' to
+  'error', and return an empty FSA (with no states or arcs) if 't' was not
+  interpretable as a valid FSA. These requirements for a valid FSA are:
+    - src_state values on the arcs must be non-decreasing
+    - all arcs with -1 as the label must be to a single state (call this
+      final_state) which has no arcs leaving it
+    - final_state, if not given, it need be calculated in this func. And it
+      must be numerically greater than any state which has arcs leaving it, and
+      >= any state that has arcs entering it.
+  If there are no arcs with -1 on the label, here is how we determine the final
+  state:
+     - If there were no states at all in the FSA we'll return the empty FSA
+       (with no arcs), and set error = true. (As the k2-fsa definition is there
+       at least must be a super final state.)
+     - Else if there were some states but no arcs, we'll return the FSA (with
+       just one implicit super final state (set id = 1) and no arcs), and set
+       error = false.
+     - Otherwise, we'll let `final_state` be the highest-numbered state
+       that has any arcs leaving or entering it, plus one.  (This FSA
+       has no successful paths but still has states.)
+
+    @param [in] arcs       Source arcs. Caution: the returned FSA will share
+                            memory with this tensor, so don't modify it
+                            afterward!
+    @param [out] error      Error flag.  On success this function will write
+                            'false' here; on error, it will print an error
+                            message to the standard error and write 'true' here.
+    @param [in] final_state This indicates the final-state ID (with default: -1,
+                            means unknown, so it will be figured out by this
+                            function).
+    @return                 The resulting FSA will be returned.
+*/
+Fsa FsaFromArray1(Array1<Arc> &arcs, bool *error, int32_t final_state = -1);
 
 /*
   Returns a single Tensor that represents the FSA; this is just the vector of
-  Arc reinterpreted as  num_arcs by 4 Tensor of int32_t.  It can be converted
-  back to an equivalent FSA using `FsaFromTensor`.  Notice: this is not the
-  same format as we use to serialize FsaVec.
+  Arc reinterpreted as a (num_arcs by 4) Tensor of int32_t.  It can be converted
+  back to an equivalent FSA using `FsaFromTensor`.  Notice: this is not the same
+  format as we use to serialize FsaVec.  Also the round-trip conversion to
+  Tensor and back may not preserve the number of states for FSAs that had no
+  arcs entering the final-state, since we have to guess the number of states in
+  this case.
 
   It is an error if `fsa.NumAxes() != 2`.
  */
@@ -259,8 +308,6 @@ Tensor FsaVecToTensor(const FsaVec &fsa_vec);
 
 */
 FsaVec FsaVecFromTensor(Tensor &t, bool *error);
-
-FsaVec FsaVecFromArray1(Array1<Arc> &arc, bool *error);  // TODO: implement it
 
 /*
   Return one Fsa in an FsaVec.  Note, this has to make copies of the

@@ -1,10 +1,6 @@
 /**
- * @brief Unittest for host shim.
- *
- * @copyright
  * Copyright (c)  2020  Mobvoi Inc.        (authors: Fangjun Kuang)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -24,11 +20,24 @@ TEST(HostShim, FsaToHostFsa) {
     2 3 -1 0
     3
   )";
-  Fsa fsa = FsaFromString(s);
+  Fsa fsa = FsaFromString(s, false);
   k2host::Fsa host_fsa = FsaToHostFsa(fsa);
   K2_LOG(INFO) << k2host::FsaToString(host_fsa);
   // TODO(fangjun): check the content of host_fsa
 }
+
+
+TEST(HostShim, IsRandEquivalent) {
+  // check that empty FSAs with zero vs 2 states are equivalent.
+  FsaVec f("[ [ [] [] ] [] [] ]"),
+      g("[ [ [] [] ] [ [] [] ] [ [] [] ] ]");
+  EXPECT_EQ(f.NumAxes(), 3);
+  EXPECT_EQ(g.NumAxes(), 3);
+
+  EXPECT_EQ(IsRandEquivalent(f, g, true), true);
+}
+
+
 
 TEST(HostShim, FsaVecToHostFsa) {
   std::string s1 = R"( 0 1 1 1

@@ -1,11 +1,6 @@
 /**
- * @brief
- * host_shim
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Daniel Povey, Haowen Qiu)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -20,6 +15,7 @@
 namespace k2 {
 
 k2host::Fsa FsaToHostFsa(Fsa &fsa) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_EQ(fsa.NumAxes(), 2);
   K2_CHECK_EQ(fsa.Context()->GetDeviceType(), kCpu);
   // reinterpret_cast works because the arcs have the same members
@@ -29,6 +25,7 @@ k2host::Fsa FsaToHostFsa(Fsa &fsa) {
 }
 
 k2host::Fsa FsaVecToHostFsa(FsaVec &fsa_vec, int32_t index) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_EQ(fsa_vec.NumAxes(), 3);
   K2_CHECK_LT(static_cast<uint32_t>(index),
               static_cast<uint32_t>(fsa_vec.Dim0()));
@@ -53,6 +50,7 @@ k2host::Fsa FsaVecToHostFsa(FsaVec &fsa_vec, int32_t index) {
 
 void FsaVecCreator::Init(
     const std::vector<k2host::Array2Size<int32_t>> &sizes) {
+  NVTX_RANGE(K2_FUNC);
   int32_t num_fsas = static_cast<int32_t>(sizes.size());
   K2_CHECK_GT(num_fsas, 0);
   ContextPtr c = GetCpuContext();
@@ -78,6 +76,7 @@ void FsaVecCreator::Init(
 }
 
 void FsaVecCreator::FinalizeRowSplits2() {
+  NVTX_RANGE(K2_FUNC);
   if (finalized_row_splits2_) return;
   finalized_row_splits2_ = true;
   int32_t num_fsas = row_splits1_.Dim() - 1;
@@ -102,6 +101,7 @@ void FsaVecCreator::FinalizeRowSplits2() {
 }
 
 k2host::Fsa FsaVecCreator::GetHostFsa(int32_t i) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_EQ(i, next_fsa_idx_);  // make sure they are called in order.
   next_fsa_idx_++;
 
@@ -117,6 +117,7 @@ k2host::Fsa FsaVecCreator::GetHostFsa(int32_t i) {
 }
 
 FsaVec FsaVecCreator::GetFsaVec() {
+  NVTX_RANGE(K2_FUNC);
   FinalizeRowSplits2();
   return Ragged<Arc>(
       RaggedShape3(&row_splits1_, nullptr, -1, &row_splits2_, nullptr, -1),
@@ -136,7 +137,7 @@ FsaVec FsaVecCreator::GetFsaVec() {
 */
 static Array1<bool> CheckProperties(FsaOrVec &fsas,
                                     bool (*f)(const k2host::Fsa &)) {
-  NVTX_RANGE("CheckProperties");
+  NVTX_RANGE(K2_FUNC);
   ContextPtr &c = fsas.Context();
   K2_CHECK_EQ(c->GetDeviceType(), kCpu);
   if (fsas.NumAxes() == 2) {
@@ -157,17 +158,17 @@ static Array1<bool> CheckProperties(FsaOrVec &fsas,
 }
 
 Array1<bool> IsTopSorted(FsaOrVec &fsas) {
-  NVTX_RANGE("IsTopSorted");
+  NVTX_RANGE(K2_FUNC);
   return CheckProperties(fsas, k2host::IsTopSorted);
 }
 
 Array1<bool> IsArcSorted(FsaOrVec &fsas) {
-  NVTX_RANGE("IsArcSorted");
+  NVTX_RANGE(K2_FUNC);
   return CheckProperties(fsas, k2host::IsArcSorted);
 }
 
 Array1<bool> HasSelfLoops(FsaOrVec &fsas) {
-  NVTX_RANGE("HasSelfLoops");
+  NVTX_RANGE(K2_FUNC);
   return CheckProperties(fsas, k2host::HasSelfLoops);
 }
 
@@ -177,29 +178,29 @@ static bool IsAcyclicWapper(const k2host::Fsa &fsa) {
   return k2host::IsAcyclic(fsa, nullptr);
 }
 Array1<bool> IsAcyclic(FsaOrVec &fsas) {
-  NVTX_RANGE("IsAcyclic");
+  NVTX_RANGE(K2_FUNC);
   return CheckProperties(fsas, IsAcyclicWapper);
 }
 
 Array1<bool> IsDeterministic(FsaOrVec &fsas) {
-  NVTX_RANGE("IsDeterministic");
+  NVTX_RANGE(K2_FUNC);
   return CheckProperties(fsas, k2host::IsDeterministic);
 }
 
 Array1<bool> IsEpsilonFree(FsaOrVec &fsas) {
-  NVTX_RANGE("IsEpsilonFree");
+  NVTX_RANGE(K2_FUNC);
   return CheckProperties(fsas, k2host::IsEpsilonFree);
 }
 
 Array1<bool> IsConnected(FsaOrVec &fsas) {
-  NVTX_RANGE("IsConnected");
+  NVTX_RANGE(K2_FUNC);
   return CheckProperties(fsas, k2host::IsConnected);
 }
 
 bool IsRandEquivalentUnweighted(FsaOrVec &a, FsaOrVec &b,
                                 bool treat_epsilons_specially /*=true*/,
                                 std::size_t npath /*= 100*/) {
-  NVTX_RANGE("IsRandEquivalentUnweighted");
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_GE(a.NumAxes(), 2);
   K2_CHECK_EQ(b.NumAxes(), a.NumAxes());
   if (a.Context()->GetDeviceType() != kCpu ||
@@ -227,14 +228,14 @@ bool IsRandEquivalent(Fsa &a, Fsa &b, bool log_semiring,
                       float beam /*=k2host::kFloatInfinity*/,
                       bool treat_epsilons_specially /*=true*/,
                       float delta /*=1e-6*/, std::size_t npath /*= 100*/) {
-  NVTX_RANGE("IsRandEquivalent");
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_GE(a.NumAxes(), 2);
   K2_CHECK_EQ(b.NumAxes(), a.NumAxes());
   if (a.Context()->GetDeviceType() != kCpu ||
       b.Context()->GetDeviceType() != kCpu) {
     FsaOrVec a_cpu = a.To(GetCpuContext()), b_cpu = b.To(GetCpuContext());
-    return IsRandEquivalent(a, b, log_semiring, beam, treat_epsilons_specially,
-                            delta, npath);
+    return IsRandEquivalent(a_cpu, b_cpu, log_semiring, beam,
+                            treat_epsilons_specially, delta, npath);
   }
   if (a.NumAxes() > 2) {
     for (int32_t i = 0; i < a.Dim0(); i++) {
@@ -260,7 +261,7 @@ bool IsRandEquivalent(Fsa &a, Fsa &b, bool log_semiring,
 
 template <typename FloatType>
 Array1<FloatType> GetForwardScores(FsaVec &fsas, bool log_semiring) {
-  NVTX_RANGE("GetForwardScores");
+  NVTX_RANGE(K2_FUNC);
   ContextPtr &c = fsas.Context();
   K2_CHECK_EQ(c->GetDeviceType(), kCpu);
   K2_CHECK_EQ(fsas.NumAxes(), 3);
@@ -287,7 +288,7 @@ template <typename FloatType>
 Array1<FloatType> GetBackwardScores(
     FsaVec &fsas, const Array1<FloatType> *tot_scores /*= nullptr*/,
     bool log_semiring /*= true*/) {
-  NVTX_RANGE("GetBackwardScores");
+  NVTX_RANGE(K2_FUNC);
   ContextPtr &c = fsas.Context();
   K2_CHECK_EQ(c->GetDeviceType(), kCpu);
   K2_CHECK_EQ(fsas.NumAxes(), 3);
@@ -316,15 +317,15 @@ Array1<FloatType> GetBackwardScores(
     K2_CHECK_EQ(tot_scores->Context()->GetDeviceType(), kCpu);
     K2_CHECK_EQ(tot_scores->Dim(), num_fsas);
     const FloatType *tot_scores_data = tot_scores->Data();
-    auto lambda_add_tot_scores = [=] __host__ __device__(int32_t state_idx01) {
-      int32_t fsa_idx0 = fsa_row_ids1[state_idx01];
-      if (tot_scores_data[fsa_idx0] != negative_infinity) {
-        state_scores_data[state_idx01] -= tot_scores_data[fsa_idx0];
-      } else {
-        state_scores_data[state_idx01] = negative_infinity;
-      }
-    };
-    Eval(c, num_states, lambda_add_tot_scores);
+    K2_EVAL(
+        c, num_states, lambda_add_tot_scores, (int32_t state_idx01) {
+          int32_t fsa_idx0 = fsa_row_ids1[state_idx01];
+          if (tot_scores_data[fsa_idx0] != negative_infinity) {
+            state_scores_data[state_idx01] -= tot_scores_data[fsa_idx0];
+          } else {
+            state_scores_data[state_idx01] = negative_infinity;
+          }
+        });
   }
 
   return state_scores.AsType<FloatType>();

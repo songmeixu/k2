@@ -1,12 +1,7 @@
 /**
- * @brief
- * pytorch_context
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Daniel Povey)
  *                      Mobvoi Inc.        (authors: Fangjun Kuang)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -22,7 +17,7 @@ namespace k2 {
 
 class ManagedTensor {
  public:
-  explicit ManagedTensor(torch::Tensor &tensor) : handle_(tensor) {}
+  explicit ManagedTensor(torch::Tensor tensor) : handle_(tensor) {}
 
  private:
   torch::Tensor handle_;  // retain a copy of the tensor passed from Python
@@ -32,7 +27,7 @@ class ManagedTensor {
 //
 // The resulting region shares the underlying memory with
 // the given tensor.
-RegionPtr NewRegion(torch::Tensor &tensor);
+RegionPtr NewRegion(torch::Tensor tensor);
 
 }  // namespace k2
 

@@ -1,12 +1,7 @@
 /**
- * @brief
- * fsa_equivalent
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Daniel Povey
  *                                                   Haowen Qiu)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -179,9 +174,9 @@ class RandPath {
   const int32_t eps_arc_tries_;
 
   bool status_;
-  std::vector<int32_t> arc_indexes_;  // arc_index of fsa_out
   std::vector<Arc> arcs_;             // arcs of fsa_out
-  std::vector<int32_t> arc_map_;
+  std::vector<int32_t> arc_map_;      // map from element of arcs_ to
+                                      // corresponding arc_index of fsa_in
 };
 
 }  // namespace k2host

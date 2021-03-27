@@ -1,19 +1,16 @@
 /**
- * @brief
- * default_context
- *
- * @copyright
  * Copyright (c)  2020  Mobvoi Inc.        (authors: Fangjun Kuang)
  *                      Xiaomi Corporation (authors: Haowen Qiu)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
 #include <cstdlib>
+#include <mutex>  // NOLINT
 
 #include "k2/csrc/context.h"
 #include "k2/csrc/log.h"
+#include "k2/csrc/nvtx.h"
 
 namespace k2 {
 
@@ -24,7 +21,6 @@ class CpuContext : public Context {
  public:
   CpuContext() = default;
   ContextPtr GetCpuContext() override { return shared_from_this(); }
-  ContextPtr GetPinnedContext() override { return nullptr; }
   DeviceType GetDeviceType() const override { return kCpu; }
 
   void *Allocate(std::size_t bytes, void **deleter_context) override {
@@ -59,7 +55,6 @@ class CudaContext : public Context {
     K2_CHECK_CUDA_ERROR(ret);
   }
   ContextPtr GetCpuContext() override { return k2::GetCpuContext(); }
-  ContextPtr GetPinnedContext() override { return nullptr; }
   DeviceType GetDeviceType() const override { return kCuda; }
   int32_t GetDeviceId() const override { return gpu_id_; }
 
@@ -104,7 +99,20 @@ class CudaContext : public Context {
 ContextPtr GetCpuContext() { return std::make_shared<CpuContext>(); }
 
 ContextPtr GetCudaContext(int32_t gpu_id /*= -1*/) {
-  return std::make_shared<CudaContext>(gpu_id);
+  static std::once_flag has_cuda_init_flag;
+  static bool has_cuda = false;
+  std::call_once(has_cuda_init_flag, []() {
+    int n = 0;
+    auto ret = cudaGetDeviceCount(&n);
+    if (ret == cudaSuccess && n > 0)
+      has_cuda = true;
+    else
+      K2_LOG(WARNING) << "CUDA is not available. Return a CPU context.";
+  });
+
+  if (has_cuda) return std::make_shared<CudaContext>(gpu_id);
+
+  return GetCpuContext();
 }
 
 }  // namespace k2

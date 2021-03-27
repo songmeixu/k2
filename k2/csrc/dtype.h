@@ -1,11 +1,6 @@
 /**
- * @brief
- * dtype
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Daniel Povey)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -59,7 +54,7 @@ class DtypeTraits {
 extern const DtypeTraits g_dtype_traits_array[];
 
 // It's just an enum, we can use TraitsOf(dtype).NumBytes() and so on..
-enum Dtype {
+enum class Dtype {
   kFloatDtype,
   kDoubleDtype,
   kInt8Dtype,
@@ -69,6 +64,17 @@ enum Dtype {
   kUint32Dtype,
   kUint64Dtype,
 };
+
+constexpr Dtype kFloatDtype = Dtype::kFloatDtype;
+constexpr Dtype kDoubleDtype = Dtype::kDoubleDtype;
+constexpr Dtype kInt8Dtype = Dtype::kInt8Dtype;
+constexpr Dtype kInt16Dtype = Dtype::kInt16Dtype;
+constexpr Dtype kInt32Dtype = Dtype::kInt32Dtype;
+constexpr Dtype kInt64Dtype = Dtype::kInt64Dtype;
+constexpr Dtype kUint32Dtype = Dtype::kUint32Dtype;
+constexpr Dtype kUint64Dtype = Dtype::kUint64Dtype;
+
+std::ostream &operator<<(std::ostream &os, Dtype dtype);
 
 inline DtypeTraits TraitsOf(Dtype dtype) {
   return g_dtype_traits_array[static_cast<int32_t>(dtype)];
@@ -121,47 +127,47 @@ struct DtypeOf<uint64_t> {
   Evaluates Expr for TypeName being all dtypes.  E.g.
      FOR_ALL_DTYPES(t.GetDtype(), T, SomeFuncCall<T>(a,b,c..));
  */
-#define FOR_ALL_DTYPES(DtypeValue, TypeName, Expr)                       \
+#define FOR_ALL_DTYPES(DtypeValue, TypeName, ...)                        \
   do {                                                                   \
     switch (DtypeValue) {                                                \
       case kFloatDtype: {                                                \
         using TypeName = float;                                          \
-        Expr;                                                            \
+        __VA_ARGS__;                                                     \
         break;                                                           \
       }                                                                  \
       case kDoubleDtype: {                                               \
         using TypeName = double;                                         \
-        Expr;                                                            \
+        __VA_ARGS__;                                                     \
         break;                                                           \
       }                                                                  \
       case kInt8Dtype: {                                                 \
         using TypeName = int8_t;                                         \
-        Expr;                                                            \
+        __VA_ARGS__;                                                     \
         break;                                                           \
       }                                                                  \
       case kInt16Dtype: {                                                \
         using TypeName = int16_t;                                        \
-        Expr;                                                            \
+        __VA_ARGS__;                                                     \
         break;                                                           \
       }                                                                  \
       case kInt32Dtype: {                                                \
         using TypeName = int32_t;                                        \
-        Expr;                                                            \
+        __VA_ARGS__;                                                     \
         break;                                                           \
       }                                                                  \
       case kInt64Dtype: {                                                \
         using TypeName = int64_t;                                        \
-        Expr;                                                            \
+        __VA_ARGS__;                                                     \
         break;                                                           \
       }                                                                  \
       case kUint32Dtype: {                                               \
         using TypeName = uint32_t;                                       \
-        Expr;                                                            \
+        __VA_ARGS__;                                                     \
         break;                                                           \
       }                                                                  \
       case kUint64Dtype: {                                               \
         using TypeName = uint64_t;                                       \
-        Expr;                                                            \
+        __VA_ARGS__;                                                     \
         break;                                                           \
       }                                                                  \
       default:                                                           \
@@ -172,6 +178,34 @@ struct DtypeOf<uint64_t> {
         break;                                                           \
     }                                                                    \
   } while (0)
+
+#define FOR_REAL_AND_INT32_TYPES(DtypeValue, TypeName, ...)              \
+  do {                                                                   \
+    switch (DtypeValue) {                                                \
+      case kFloatDtype: {                                                \
+        using TypeName = float;                                          \
+        __VA_ARGS__;                                                     \
+        break;                                                           \
+      }                                                                  \
+      case kDoubleDtype: {                                               \
+        using TypeName = double;                                         \
+        __VA_ARGS__;                                                     \
+        break;                                                           \
+      }                                                                  \
+      case kInt32Dtype: {                                                \
+        using TypeName = int32_t;                                        \
+        __VA_ARGS__;                                                     \
+        break;                                                           \
+      }                                                                  \
+      default:                                                           \
+        K2_LOG(FATAL)                                                    \
+            << "Dtype " << TraitsOf(DtypeValue).Name()                   \
+            << " not covered in switch statement.  p not supported for " \
+               "this type?";                                             \
+        break;                                                           \
+    }                                                                    \
+  } while (0)
+
 }  // namespace k2
 
 #endif  // K2_CSRC_DTYPE_H_

@@ -1,12 +1,7 @@
 /**
- * @brief
- * intersect
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Daniel Povey
  *                                                   Haowen Qiu)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -34,11 +29,18 @@ class Intersection {
      @param [in] treat_epsilons_specially  If true, treat epsilons
                       as epsilon; if false, threat them as any other
                       symbol.
+     @param [in] check_properties  If true, we'll check properties of the
+                      two input Fsas; otherwise we assume their properties
+                      have been checked by the caller and we won't check in
+                      this function. Noted for now we only check if the two
+                      input Fsa are arc-sorted or not.
   */
-  Intersection(const Fsa &a, const Fsa &b,
-               bool treat_epsilons_specially = true) :
-      a_(a), b_(b),
-      treat_epsilons_specially_(treat_epsilons_specially) {}
+  Intersection(const Fsa &a, const Fsa &b, bool treat_epsilons_specially = true,
+               bool check_properties = true)
+      : a_(a),
+        b_(b),
+        treat_epsilons_specially_(treat_epsilons_specially),
+        check_properties_(check_properties) {}
 
   /*
     Do enough work to know how much memory will be needed, and output
@@ -81,6 +83,7 @@ class Intersection {
   Fsa b_;
 
   bool treat_epsilons_specially_;
+  bool check_properties_;
   bool status_;
   std::vector<int32_t> arc_indexes_;  // arc_index of fsa_out
   std::vector<Arc> arcs_;             // arcs of fsa_out

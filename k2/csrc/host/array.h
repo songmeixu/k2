@@ -1,9 +1,8 @@
-// k2/csrc/array.h
-
-// Copyright (c)  2020  Xiaomi Corporation (authors: Daniel Povey
-//                                                   Haowen Qiu)
-
-// See ../../LICENSE for clarification regarding multiple authors
+/**
+ * Copyright (c)  2020  Xiaomi Corporation (authors: Daniel Povey, Haowen Qiu)
+ *
+ * See LICENSE for clarification regarding multiple authors
+ */
 
 #ifndef K2_CSRC_HOST_ARRAY_H_
 #define K2_CSRC_HOST_ARRAY_H_
@@ -18,6 +17,8 @@
 #include <vector>
 
 #include "k2/csrc/log.h"
+#include "k2/csrc/macros.h"
+#include "k2/csrc/nvtx.h"
 
 namespace k2host {
 
@@ -223,6 +224,7 @@ struct Array3 {
              // through this object.
 
   Array2<Ptr, I> operator[](I i) const {
+    NVTX_RANGE(K2_FUNC);
     K2_DCHECK_GE(i, 0);
     K2_DCHECK_LT(i, size1);
 
@@ -258,6 +260,7 @@ struct Array3 {
       @param [in] array_size The number element of vector `arrays`
    */
   void Create(const Array2<Ptr, I> *arrays, I array_size) {
+    NVTX_RANGE(K2_FUNC);
     K2_CHECK_EQ(size1, array_size);
     I size2_tmp = 0, size3_tmp = 0;
     for (I i = 0; i != array_size; ++i) {

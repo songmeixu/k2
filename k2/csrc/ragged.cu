@@ -1,11 +1,6 @@
 /**
- * @brief
- * ragged
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Daniel Povey, Haowen Qiu)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -13,8 +8,10 @@
 #include <vector>
 
 #include "k2/csrc/array_ops.h"
+#include "k2/csrc/macros.h"
 #include "k2/csrc/math.h"
 #include "k2/csrc/ragged.h"
+
 namespace {
 
 // will be used in RaggedShape::MaxSize(int32_t axis) to call
@@ -24,10 +21,10 @@ struct RowSplitsDiff {
   explicit RowSplitsDiff(const int32_t *row_splits)
       : row_splits_data(row_splits) {}
   // operator[] and operator+ are required by cub::DeviceReduce::Max
-  __device__ int32_t operator[](int32_t i) const {
+  __device__ __forceinline__ int32_t operator[](int32_t i) const {
     return row_splits_data[i + 1] - row_splits_data[i];
   }
-  __device__ RowSplitsDiff operator+(int32_t n) const {
+  __device__ __forceinline__ RowSplitsDiff operator+(int32_t n) const {
     RowSplitsDiff tmp(*this);
     tmp.row_splits_data += n;
     return tmp;
@@ -51,6 +48,7 @@ namespace k2 {
 
 void PrintRaggedShapePart(std::ostream &stream, const RaggedShape &shape,
                           int32_t axis, int32_t begin_pos, int32_t end_pos) {
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK(axis >= 0 && axis < shape.NumAxes() && begin_pos >= 0 &&
            begin_pos <= end_pos && end_pos <= shape.TotSize(axis));
   for (int32_t d = begin_pos; d < end_pos; ++d) {
@@ -84,12 +82,12 @@ std::ostream &operator<<(std::ostream &stream, const RaggedShape &shape) {
       stream << "Invalid RaggedShape: { ";
       stream << " num-axes = " << shape.NumAxes();
       for (int32_t i = 1; i < shape.NumAxes(); i++) {
-        const RaggedShapeDim &axis = shape.Axes()[i-1];
-        if (axis.row_splits.IsValid())
-          stream << " RowSplits(" << i << ")=" << axis.row_splits;
-        if (axis.row_ids.IsValid())
-          stream << "RowIds(" << i << ")=" << axis.row_ids;
-        stream << "cached_tot_size[" << i << "]=" << axis.cached_tot_size;
+        const RaggedShapeLayer &layer = shape.Layers()[i - 1];
+        if (layer.row_splits.IsValid())
+          stream << " RowSplits(" << i << ")=" << layer.row_splits;
+        if (layer.row_ids.IsValid())
+          stream << "RowIds(" << i << ")=" << layer.row_ids;
+        stream << "cached_tot_size[" << i << "]=" << layer.cached_tot_size;
       }
       return stream << " }";
     }
@@ -97,14 +95,14 @@ std::ostream &operator<<(std::ostream &stream, const RaggedShape &shape) {
 }
 
 Array1<int32_t> &RaggedShape::RowIds(int32_t axis) {
-  NVTX_RANGE("RaggedShape::RowIds()");
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_GT(axis, 0);
   K2_CHECK_LT(axis, NumAxes());
-  RaggedShapeDim &rsd = axes_[axis - 1];
+  RaggedShapeLayer &rsd = layers_[axis - 1];
   auto &row_splits = rsd.row_splits;
   auto &row_ids = rsd.row_ids;
   // there must be row_splits.Dim() >=1 according to the definition of
-  // RaggedShapeDim.
+  // RaggedShapeLayer.
   K2_CHECK_GE(row_splits.Dim(), 1);
   if (!row_ids.IsValid()) {
     if (rsd.cached_tot_size < 0)
@@ -120,10 +118,10 @@ Array1<int32_t> &RaggedShape::RowIds(int32_t axis) {
 }
 
 int32_t RaggedShape::MaxSize(int32_t axis) {
-  NVTX_RANGE(__func__);
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_GT(axis, 0);
   K2_CHECK_LT(axis, NumAxes());
-  const auto &row_splits = axes_[axis - 1].row_splits;
+  const auto &row_splits = layers_[axis - 1].row_splits;
   const int32_t num_rows = row_splits.Dim() - 1;
   if (num_rows == 0) return 0;
   const int32_t *row_splits_data = row_splits.Data();
@@ -141,18 +139,15 @@ int32_t RaggedShape::MaxSize(int32_t axis) {
     Array1<int32_t> max_array(Context(), 1, 0);
     int32_t *max_value = max_array.Data();
 
-    void *d_temp_storage = nullptr;
     size_t temp_storage_bytes = 0;
     // the first time is to determine temporary device storage requirements
-    K2_CUDA_SAFE_CALL(cub::DeviceReduce::Max(d_temp_storage, temp_storage_bytes,
+    K2_CUDA_SAFE_CALL(cub::DeviceReduce::Max(nullptr, temp_storage_bytes,
                                              row_splits_diff, max_value,
                                              num_rows, c->GetCudaStream()));
-    void *deleter_context;
-    d_temp_storage = c->Allocate(temp_storage_bytes, &deleter_context);
-    K2_CUDA_SAFE_CALL(cub::DeviceReduce::Max(d_temp_storage, temp_storage_bytes,
-                                             row_splits_diff, max_value,
-                                             num_rows, c->GetCudaStream()));
-    c->Deallocate(d_temp_storage, deleter_context);
+    Array1<int8_t> d_temp_storage(c, temp_storage_bytes);
+    K2_CUDA_SAFE_CALL(cub::DeviceReduce::Max(
+        d_temp_storage.Data(), temp_storage_bytes, row_splits_diff, max_value,
+        num_rows, c->GetCudaStream()));
     // this will convert to memory on CPU
     return max_array[0];
   }
@@ -160,29 +155,32 @@ int32_t RaggedShape::MaxSize(int32_t axis) {
 
 RaggedShape RaggedShape::Index(int32_t axis, int32_t i,
                                int32_t *value_offset /*= nullptr*/) {
-  NVTX_RANGE(__func__);
+  NVTX_RANGE(K2_FUNC);
   // only support `axis == 0` for now
   K2_CHECK_EQ(axis, 0);
   K2_CHECK_GE(i, 0);
   int32_t num_axes = NumAxes();
-  K2_CHECK_GE(num_axes, 2);
-  const auto &src_axes = Axes();
+  K2_CHECK_GT(num_axes, 2);
+  const auto &src_axes = Layers();
   K2_CHECK_LT(i + 1, src_axes[0].row_splits.Dim());
 
   if (i == 0 && Dim0() == 1) {
     // Just remove first axis.  Common case so we make it efficient.
-    std::vector<RaggedShapeDim> ans_axes(src_axes.begin() + 1, src_axes.end());
+    std::vector<RaggedShapeLayer> ans_axes(src_axes.begin() + 1,
+                                           src_axes.end());
     if (value_offset) *value_offset = 0;
     return RaggedShape(ans_axes, false);
   }
 
   int32_t idx_begin = (i != 0 ? src_axes[0].row_splits[i] : 0),
           idx_end = src_axes[0].row_splits[i + 1];
-  std::vector<RaggedShapeDim> axes(src_axes.size() - 1);
-  ContextPtr c = Context();
+  std::vector<RaggedShapeLayer> axes(src_axes.size() - 1);
+  ContextPtr &c = Context();
   for (int32_t i = 2; i < num_axes; ++i) {
     const Array1<int32_t> &src_row_splits = RowSplits(i),
                           &src_row_ids = RowIds(i);
+    // TODO(fangjun): see https://github.com/k2-fsa/k2/pull/547
+    // for how to optimize it (do all transfer in a single kernel).
     int32_t idx_begin_next = (idx_begin != 0 ? src_row_splits[idx_begin] : 0),
             idx_end_next = src_row_splits[idx_end];
 
@@ -204,7 +202,7 @@ RaggedShape RaggedShape::Index(int32_t axis, int32_t i,
 }
 
 void RaggedShape::Populate() {
-  NVTX_RANGE(__func__);
+  NVTX_RANGE(K2_FUNC);
   int32_t num_axes = NumAxes();
   ParallelRunner pr(this->Context());
   for (int32_t i = 1; i < num_axes; ++i) {
@@ -216,12 +214,12 @@ void RaggedShape::Populate() {
 }
 
 RaggedShape RaggedShape::To(ContextPtr ctx) const {
-    NVTX_RANGE(__func__);
+  NVTX_RANGE(K2_FUNC);
   if (ctx->IsCompatible(*Context())) return *this;
-  std::vector<RaggedShapeDim> axes(axes_.size());
+  std::vector<RaggedShapeLayer> axes(layers_.size());
   int32_t num_axes = NumAxes();
   for (int32_t i = 1; i < num_axes; ++i) {
-    axes[i - 1].row_splits = axes_[i - 1].row_splits.To(ctx);
+    axes[i - 1].row_splits = layers_[i - 1].row_splits.To(ctx);
     // leave row_ids and cached_tot_size unset
     axes[i - 1].cached_tot_size = -1;
   }
@@ -233,12 +231,12 @@ RaggedShapeIndexIterator RaggedShape::Iterator() {
 }
 
 int32_t RaggedShape::operator[](const std::vector<int32_t> &indexes) {
-  NVTX_RANGE("RaggedShape::op[](std::vector<int32>)");
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_EQ(static_cast<int32_t>(indexes.size()), NumAxes());
   K2_CHECK_EQ(Context()->GetDeviceType(), kCpu);
   int32_t cur_idx = indexes[0];
   for (int32_t i = 1; i < NumAxes(); i++) {
-    Array1<int32_t> &row_splits = axes_[i - 1].row_splits;
+    Array1<int32_t> &row_splits = layers_[i - 1].row_splits;
     K2_CHECK(cur_idx >= 0 && cur_idx + 1 < row_splits.Dim());
     cur_idx = row_splits[cur_idx];
     cur_idx += indexes[i];
@@ -247,20 +245,21 @@ int32_t RaggedShape::operator[](const std::vector<int32_t> &indexes) {
 }
 
 int32_t RaggedShape::TotSize(int32_t axis) const {
-  NVTX_RANGE("RaggedShape::TotSize");
+  NVTX_RANGE(K2_FUNC);
   K2_CHECK_GE(axis, 0);
   K2_CHECK_LT(axis, NumAxes());
   if (axis == 0)
     return Dim0();
   else {
-    const RaggedShapeDim &rsd = axes_[axis - 1];
+    const RaggedShapeLayer &rsd = layers_[axis - 1];
     if (rsd.cached_tot_size >= 0) {
       return rsd.cached_tot_size;
     } else {
       // if we had row_ids set up, we should have set cached_tot_size.
       K2_CHECK_EQ(rsd.row_ids.Dim(), 0);
       K2_CHECK_GT(rsd.row_splits.Dim(), 0);
-      const_cast<RaggedShapeDim &>(rsd).cached_tot_size = rsd.row_splits.Back();
+      const_cast<RaggedShapeLayer &>(rsd).cached_tot_size =
+          rsd.row_splits.Back();
       return rsd.cached_tot_size;
     }
   }
@@ -269,14 +268,14 @@ int32_t RaggedShape::TotSize(int32_t axis) const {
 // TODO(dan): change this so that on error it prints a warning if
 // print_warnings==true, and then returns false.
 bool RaggedShape::Validate(bool print_warnings) const {
-  NVTX_RANGE("RaggedShape::Validate");
-  ContextPtr c = Context();
-  int32_t num_axes = axes_.size();
+  NVTX_RANGE(K2_FUNC);
+  ContextPtr &c = Context();
+  int32_t num_axes = layers_.size();
 
   ParallelRunner pr(c);
   for (int32_t axis = 0; axis < num_axes; ++axis) {
     With w(pr.NewStream());
-    const RaggedShapeDim &rsd = axes_[axis];
+    const RaggedShapeLayer &rsd = layers_[axis];
     K2_CHECK_GE(rsd.row_splits.Dim(), 0);
     if (rsd.cached_tot_size >= 0) {
       if (!(rsd.row_splits.Dim() == 0 ||
@@ -284,25 +283,24 @@ bool RaggedShape::Validate(bool print_warnings) const {
         if (print_warnings)
           K2_LOG(WARNING)
               << "Ragged shape validation failed, row_splits.Back()="
-              << rsd.row_splits.Back() << " vs. cached-tot-size="
-              << rsd.cached_tot_size;
+              << rsd.row_splits.Back()
+              << " vs. cached-tot-size=" << rsd.cached_tot_size;
         return false;
       }
       if (!((rsd.row_ids.Dim() == 0 ||
              rsd.cached_tot_size == rsd.row_ids.Dim()))) {
         if (print_warnings)
-          K2_LOG(WARNING)
-              << "Ragged shape validation failed, row_ids.Dim()="
-              << rsd.row_ids.Dim() << " vs. cached-tot-size="
-              << rsd.cached_tot_size;
+          K2_LOG(WARNING) << "Ragged shape validation failed, row_ids.Dim()="
+                          << rsd.row_ids.Dim()
+                          << " vs. cached-tot-size=" << rsd.cached_tot_size;
         return false;
       }
     } else {
       if (rsd.cached_tot_size != -1 || rsd.row_ids.Dim() != 0) {
         if (print_warnings)
-          K2_LOG(WARNING)
-              << "Ragged shape validation failed, cached_tot_size="
-              << rsd.cached_tot_size << ", row-ids.Dim()=" << rsd.row_ids.Dim();
+          K2_LOG(WARNING) << "Ragged shape validation failed, cached_tot_size="
+                          << rsd.cached_tot_size
+                          << ", row-ids.Dim()=" << rsd.row_ids.Dim();
         return false;
       }
     }
@@ -317,37 +315,36 @@ bool RaggedShape::Validate(bool print_warnings) const {
       const int32_t *row_splits_data = rsd.row_splits.Data();
       int32_t num_rows = rsd.row_splits.Dim() - 1;
 
-      auto lambda_check_row_splits =
-          [=] __host__ __device__(int32_t i) -> void {
-        int32_t this_idx = row_splits_data[i];
-        if (i == 0 && this_idx != 0) *ok_data = 0;
-        if (i < num_rows) {
-          int32_t next_idx = row_splits_data[i + 1];
-          if (next_idx < this_idx) *ok_data = 0;
-        } else {
-          K2_CHECK(i == num_rows);
-          *num_elems_data = this_idx;
-        }
-      };
-      Eval(c, num_rows + 1, lambda_check_row_splits);
+      K2_EVAL(
+          c, num_rows + 1, lambda_check_row_splits, (int32_t i)->void {
+            int32_t this_idx = row_splits_data[i];
+            if (i == 0 && this_idx != 0) *ok_data = 0;
+            if (i < num_rows) {
+              int32_t next_idx = row_splits_data[i + 1];
+              if (next_idx < this_idx) *ok_data = 0;
+            } else {
+              K2_CHECK(i == num_rows);
+              *num_elems_data = this_idx;
+            }
+          });
       meta = meta.To(GetCpuContext());
       num_elems = meta[1];
       int32_t ok = meta[0];
       if (!ok) {
-        K2_LOG(FATAL) << "Problem validating row-splits: for axes_[" << axis
+        K2_LOG(FATAL) << "Problem validating row-splits: for layers_[" << axis
                       << "], row_splits = " << rsd.row_splits;
       }
       if (rsd.cached_tot_size > 0 && rsd.cached_tot_size != num_elems) {
-        K2_LOG(FATAL) << "Problem validating row-splits: for axes_[" << axis
+        K2_LOG(FATAL) << "Problem validating row-splits: for layers_[" << axis
                       << "], row_splits[-1] = " << num_elems
                       << " but cached_tot_size == " << rsd.cached_tot_size;
       }
     }
     if (axis + 1 < num_axes) {
-      int32_t next_num_rows = axes_[axis + 1].row_splits.Dim() - 1;
+      int32_t next_num_rows = layers_[axis + 1].row_splits.Dim() - 1;
       if (num_elems != next_num_rows) {
-        K2_LOG(FATAL) << "Ragged shape has num_elems for axes_[" << axis
-                      << "] == " << num_elems << " and num-rows for axes_["
+        K2_LOG(FATAL) << "Ragged shape has num_elems for layers_[" << axis
+                      << "] == " << num_elems << " and num-rows for layers_["
                       << (axis + 1) << "] == " << next_num_rows;
       }
     }
@@ -365,38 +362,37 @@ bool RaggedShape::Validate(bool print_warnings) const {
               num_rows = rsd.row_splits.Dim() - 1;
 
       K2_CHECK_EQ(num_elems, num_elems_from_row_ids);
-      auto lambda_check_row_ids = [=] __host__ __device__(int32_t i) -> void {
-        int32_t this_row = row_ids_data[i];
-        if (this_row < 0 || this_row >= num_rows ||
-            i < row_splits_data[this_row] ||
-            i >= row_splits_data[this_row + 1]) {
-          *ok_data = 0;
-          *bad_index_data = i;
-        }
-      };
       // TODO: could do this and the other one in separate streams.
-      Eval(c, num_elems, lambda_check_row_ids);
+      K2_EVAL(
+          c, num_elems, lambda_check_row_ids, (int32_t i)->void {
+            int32_t this_row = row_ids_data[i];
+            if (this_row < 0 || this_row >= num_rows ||
+                i < row_splits_data[this_row] ||
+                i >= row_splits_data[this_row + 1]) {
+              *ok_data = 0;
+              *bad_index_data = i;
+            }
+          });
       meta = meta.To(GetCpuContext());  // since we have 2 accesses, this should
                                         // be faster.
       int32_t ok = meta[0];
       if (!ok) {
-        K2_LOG(FATAL) << "Problem validating row-ids: for axes_[" << axis
+        K2_LOG(FATAL) << "Problem validating row-ids: for layers_[" << axis
                       << "], row_splits = " << rsd.row_splits
                       << ", row_ids = " << rsd.row_ids << ", see index "
                       << meta[1] << " of row_ids, whose dim is "
                       << rsd.row_ids.Dim();
       }
     }
-    if (axis + 1 < axes_.size()) {
-      K2_CHECK(IsCompatible(rsd.row_splits, axes_[axis + 1].row_splits));
+    if (axis + 1 < (int32_t)layers_.size()) {
+      K2_CHECK(IsCompatible(rsd.row_splits, layers_[axis + 1].row_splits));
     }
   }
   return true;
 }
 
-
-bool Equal(RaggedShape &a, RaggedShape &b) {
-  NVTX_RANGE("Equal(RaggedShape)");
+bool Equal(const RaggedShape &a, const RaggedShape &b) {
+  NVTX_RANGE(K2_FUNC);
   if (a.NumAxes() != b.NumAxes()) return false;
   for (int32_t i = 1; i < a.NumAxes(); i++) {
     if (a.RowSplits(i).Dim() != b.RowSplits(i).Dim() ||
@@ -406,14 +402,12 @@ bool Equal(RaggedShape &a, RaggedShape &b) {
   return true;
 }
 
-std::istream &operator>>(std::istream &is,
-                         RaggedShape &shape) {
-  NVTX_RANGE("operator>>(RaggedShape)");
+std::istream &operator>>(std::istream &is, RaggedShape &shape) {
+  NVTX_RANGE(K2_FUNC);
   // Note: element 0 of 'row_splits' will end up being
   // discarded; the others will become the axes of `shape`.
-  std::vector<std::vector<int32_t> > row_splits;
-  int32_t cur_level = 0,
-      num_elems = 0;
+  std::vector<std::vector<int32_t>> row_splits;
+  int32_t cur_level = 0, num_elems = 0;
   while (1) {
     is >> std::ws;  // eat whitespace
     if (!is.good()) {
@@ -432,7 +426,7 @@ std::istream &operator>>(std::istream &is,
       }
     } else if (c == static_cast<int32_t>(']')) {
       cur_level--;
-      if (cur_level <= 0) {  // Done; return...
+      if (cur_level <= 0) {   // Done; return...
         if (cur_level < 0) {  // ']' without '['.
           is.setstate(std::ios::failbit);
           return is;
@@ -443,7 +437,7 @@ std::istream &operator>>(std::istream &is,
           // row_splits is 0 0.
           row_splits.push_back(std::vector<int32_t>(1, 0));
         }
-        std::vector<RaggedShapeDim> axes(row_splits.size());
+        std::vector<RaggedShapeLayer> axes(row_splits.size());
         for (size_t i = 0; i < row_splits.size(); i++) {
           axes[i].row_splits = Array1<int32_t>(GetCpuContext(), row_splits[i]);
           axes[i].cached_tot_size = -1;
@@ -452,8 +446,9 @@ std::istream &operator>>(std::istream &is,
         return is;
       }
       row_splits[cur_level].push_back(
-          (cur_level + 1 >= row_splits.size()) ?
-          num_elems : (row_splits[cur_level+1].size() - 1));
+          (cur_level + 1 >= (int32_t)row_splits.size())
+              ? num_elems
+              : (row_splits[cur_level + 1].size() - 1));
     } else if (c == static_cast<int32_t>('x')) {
       if (cur_level != static_cast<int32_t>(row_splits.size()) ||
           cur_level < 2) {
@@ -467,6 +462,5 @@ std::istream &operator>>(std::istream &is,
     }
   }
 }
-
 
 }  // namespace k2

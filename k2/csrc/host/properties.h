@@ -1,12 +1,7 @@
 /**
- * @brief
- * properties
- *
- * @copyright
  * Copyright (c)  2020  Xiaomi Corporation (authors: Daniel Povey
  *                                                   Haowen Qiu)
  *
- * @copyright
  * See LICENSE for clarification regarding multiple authors
  */
 
@@ -123,6 +118,9 @@ inline bool IsTopSortedAndConnected(const Fsa &fsa) {
 /*
   Returns true if `fsa` is empty. (Note: if `fsa` is not empty,
   it would contain at least two states, the start state and the final state).
+
+  Caution: this is not always very meaningful, as an FSA with no states is
+  conceptually equivalent to an FSA with two states but no arcs.
  */
 inline bool IsEmpty(const Fsa &fsa) { return fsa.size1 == 0; }
 
