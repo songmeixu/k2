@@ -71,10 +71,13 @@ set_target_properties(k2_context PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 if(CUDA_VERSION VERSION_LESS 11.0)
   target_link_libraries(k2_context PUBLIC cub::cub)
 endif()
-target_link_libraries(k2_context PUBLIC fsa k2_log k2_nvtx cub::cub moderngpu::moderngpu)
+target_link_libraries(k2_context PUBLIC fsa k2_log k2_nvtx moderngpu::moderngpu)
 if(K2_USE_PYTORCH)
   target_link_libraries(k2_context PUBLIC ${TORCH_LIBRARIES})
+  target_link_libraries(k2_context PUBLIC ${Python3_SITELIB}/torch/lib/libtorch_python.so)
 endif()
+target_include_directories(context PUBLIC ${PYTHON_INCLUDE_DIRS})
+add_definitions(-DTORCH_API_INCLUDE_EXTENSION_H)
 
 #---------------------------- Test K2 CUDA sources ----------------------------
 

@@ -36,6 +36,12 @@ message(STATUS "C++ Standard version: ${CMAKE_CXX_STANDARD}")
 # init CMAKE_MODULE_PATH as build-dir, where conan generates *.cmake
 list(PREPEND CMAKE_MODULE_PATH CMAKE_BINARY_DIR "${CMAKE_SOURCE_DIR}/build")
 
+if("${CMAKE_BUILD_TYPE_UPPERCASE}" STREQUAL "DEBUG")
+  # refer to https://docs.nvidia.com/cuda/cuda-memcheck/index.html#compilation-options
+  # The two options are to make cuda-memcheck's stack backtrace feature more useful.
+  set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --compiler-options -rdynamic --compiler-options -lineinfo")
+endif()
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(BUILD_SHARED_LIBS "Whether to build shared or static lib" ON)
@@ -133,6 +139,7 @@ message(STATUS "Set PYTHON_EXECUTABLE = ${Python3_EXECUTABLE}")
 # Find c++ deps
 if(K2_USE_PYTORCH)
   add_definitions(-DK2_USE_PYTORCH)
+  add_definitions(-DTORCH_API_INCLUDE_EXTENSION_H)
   set(Torch_DIR "${Python3_SITELIB}/torch/share/cmake/Torch")
   find_package(Torch REQUIRED)
 endif()
