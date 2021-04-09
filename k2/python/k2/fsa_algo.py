@@ -116,8 +116,10 @@ def top_sort(fsa: Fsa) -> Fsa:
     return out_fsa
 
 
-def intersect_device(a_fsas: Fsa, b_fsas: Fsa,
-                     b_to_a_map: torch.Tensor) -> Fsa:
+def intersect_device(a_fsas: Fsa,
+                     b_fsas: Fsa,
+                     b_to_a_map: torch.Tensor,
+                     sorted_match_a: bool = False) -> Fsa:
     '''Compute the intersection of two FSAs treating epsilons
     as real, normal symbols.
 
@@ -156,7 +158,7 @@ def intersect_device(a_fsas: Fsa, b_fsas: Fsa,
     need_arc_map = True
     ragged_arc, a_arc_map, b_arc_map = _k2.intersect_device(
         a_fsas.arcs, a_fsas.properties, b_fsas.arcs, b_fsas.properties,
-        b_to_a_map, need_arc_map)
+        b_to_a_map, need_arc_map, sorted_match_a)
     out_fsas = Fsa(ragged_arc)
 
     for name, a_value in a_fsas.named_tensor_attr():
@@ -536,6 +538,28 @@ def add_epsilon_self_loops(fsa: Fsa) -> Fsa:
     need_arc_map = True
     ragged_arc, arc_map = _k2.add_epsilon_self_loops(fsa.arcs,
                                                      need_arc_map=need_arc_map)
+
+    out_fsa = k2.utils.fsa_from_unary_function_tensor(fsa, ragged_arc, arc_map)
+    return out_fsa
+
+
+def remove_epsilon_self_loops(fsa: Fsa) -> Fsa:
+    '''Remove epsilon self-loops of an Fsa or an FsaVec.
+
+    Caution:
+      Unlike :func:`remove_epsilon`, this funciton removes only
+      epsilon self-loops.
+
+    Args:
+      fsa:
+        The input FSA. It can be either a single FSA or an FsaVec.
+
+    Returns:
+      An instance of :class:`Fsa` that has no epsilon self-loops on every
+      non-final state.
+    '''
+    need_arc_map = True
+    ragged_arc, arc_map = _k2.remove_epsilon_self_loops(fsa.arcs, need_arc_map)
 
     out_fsa = k2.utils.fsa_from_unary_function_tensor(fsa, ragged_arc, arc_map)
     return out_fsa
