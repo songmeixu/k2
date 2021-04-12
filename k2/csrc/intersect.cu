@@ -366,7 +366,7 @@ class DeviceIntersector {
               a_dest_state_idx1 = a_arc.dest_state;
           uint64_t hash_key = (((uint64_t)a_dest_state_idx1) * a_states_multiple) +
               b_dest_state_idx01;
-          uint64_t value;
+          uint64_t value = 0;
           bool ans = state_pair_to_state_acc.Find(hash_key, &value);
           K2_CHECK_EQ(ans, true);
           int32_t old_dest_state_idx01 = static_cast<uint32_t>(value);
@@ -1340,7 +1340,7 @@ FsaVec IntersectDevice(FsaVec &a_fsas, int32_t properties_a,
   K2_CHECK_NE(properties_b & kFsaPropertiesValid, 0);
   if (sorted_match_a && ((properties_a & kFsaPropertiesArcSorted) == 0)) {
     K2_LOG(ERROR) << "If you provide sorted_match_a=true, a_fsas "
-        "must be arc-sorted, but (according to the the properties) "
+        "must be arc-sorted, but (according to the properties) "
         "it is not.";
   }
   K2_CHECK_EQ(a_fsas.NumAxes(), 3);
